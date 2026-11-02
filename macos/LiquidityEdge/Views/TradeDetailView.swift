@@ -8,7 +8,9 @@ struct TradeDetailView: View {
     var edit: (TradeRecord) -> Void
     @State private var deleting = false
     @State private var selectedImage: ScreenshotDraft?
+    @State private var showSupplementEditor = false
     private var trade: TradeRecord? { store.trades.first { $0.id == tradeID } }
+    private var supplement: TradeSupplement? { store.workspace.supplements[tradeID] }
     var body: some View {
         VStack(spacing: 0) {
             if let t = trade {
@@ -20,6 +22,7 @@ struct TradeDetailView: View {
                     Button(role: .destructive) { deleting = true } label: { Label(L10n.text("Delete"), systemImage: "trash") }
                         .buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.red).padding(.horizontal, 12).padding(.vertical, 10)
                         .background(Palette.red.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
+                    Button { showSupplementEditor = true } label: { Label("Fills & Checklist", systemImage: "list.bullet.clipboard") }.buttonStyle(EdgeButtonStyle(prominent: false))
                     Button { edit(t) } label: { Label(L10n.text("Edit trade"), systemImage: "pencil") }.buttonStyle(EdgeButtonStyle(prominent: false))
                     Button(L10n.text("Done")) { dismiss() }.buttonStyle(EdgeButtonStyle()).keyboardShortcut(.cancelAction)
                 }.padding(.horizontal, 24).padding(.vertical, 18).background(Palette.panel)
@@ -116,6 +119,59 @@ struct TradeDetailView: View {
                             detailRow("After", "Uygulamadan memnuniyet \(Int(t.emotional.satisfaction))/10 · Tekrar yaparım: \(t.emotional.takeAgain ? "Evet" : "Hayır")")
                             detailRow("Emotions", t.emotional.emotions.map(L10n.text).joined(separator: ", "))
                         }
+                        if let supp = supplement, !supp.fills.isEmpty {
+                            Panel(title: "EXECUTION LEDGER & FILLS", subtitle: "Gerçekleşen emirler, kademeli giriş/çıkış ve slippage analizi") {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    if let res = try? WorkstationAnalytics.executions(supp, direction: t.direction) {
+                                        HStack(spacing: 20) {
+                                            TerminalMetric(title: "HESAPLANAN NET GERÇEKLEŞME", value: Format.money(res.realized, currency: store.accountCurrency), color: Palette.outcome(res.realized))
+                                            TerminalMetric(title: "KALAN AÇIK POZİSYON", value: "\(res.openQuantity) kontrat")
+                                            if let slip = res.slippageCost {
+                                                TerminalMetric(title: "KAYMA MALİYETİ (SLIPPAGE)", value: Format.money(slip, currency: store.accountCurrency), color: slip > 0 ? Palette.red : Palette.mint)
+                                            }
+                                        }
+                                        .padding(12)
+                                        .background(Palette.raised.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+                                    }
+
+                                    ForEach(supp.fills) { fill in
+                                        HStack {
+                                            Badge(text: fill.side.uppercased(), color: fill.side == "Entry" ? Palette.mint : Palette.blue)
+                                            Text(Format.date(fill.date, calendar: store.preferences.calendar, time: true)).font(.caption)
+                                            Spacer()
+                                            Text("\(fill.quantity, specifier: "%.1f") kontrat @ \(fill.price, specifier: "%.2f")").font(.caption.monospacedDigit())
+                                            if let exp = fill.expectedPrice {
+                                                Text("Beklenen: \(exp, specifier: "%.2f")").font(.caption2).foregroundStyle(Palette.muted)
+                                            }
+                                            Text("Komisyon: \(Format.money(fill.fee, currency: store.accountCurrency))").font(.caption2).foregroundStyle(Palette.muted)
+                                        }
+                                        .padding(.vertical, 4)
+                                        Divider()
+                                    }
+
+                                    Text("Önemli Not: Kaydedilmiş birincil Net P&L (\(Format.money(t.netPnL, currency: store.accountCurrency))) otoriterdir. Gerçekleşme defteri ikincil doğrulama ve detay inceleme amacıyla tutulur.")
+                                        .font(.caption2)
+                                        .foregroundStyle(Palette.muted)
+                                }
+                            }
+                        }
+                        if let supp = supplement, !supp.checklist.isEmpty {
+                            Panel(title: "STRUCTURED CHECKLIST", subtitle: "İşlem öncesi ve sonrası kontrol listesi yanıtları") {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    ForEach(supp.checklist) { item in
+                                        HStack {
+                                            Image(systemName: item.answer == true ? "checkmark.circle.fill" : item.answer == false ? "xmark.circle.fill" : "circle")
+                                                .foregroundStyle(item.answer == true ? Palette.mint : item.answer == false ? Palette.red : Palette.muted)
+                                            Text(item.label).font(.system(size: 12))
+                                            Spacer()
+                                            Badge(text: item.phase, color: item.phase == "Öncesi" ? Palette.blue : Palette.mint)
+                                        }
+                                        .padding(.vertical, 3)
+                                        Divider()
+                                    }
+                                }
+                            }
+                        }
                         Panel(title: "REFLECTION") {
                             readNote("Why I entered", t.notes.entry); readNote("What confirmed the trade", t.notes.confirmation); readNote("What invalidated the setup", t.notes.invalidation); readNote("What I did correctly", t.notes.correct); readNote("What I did incorrectly", t.notes.incorrect); readNote("What I would do differently", t.notes.differently)
                         }
@@ -127,6 +183,9 @@ struct TradeDetailView: View {
         .sheet(item: $selectedImage) { shot in ScreenshotViewer(initial: shot) { changed in
             guard let t = trade else { return }; do { var all = try (store.model(t.id)?.screenshots ?? []).map(ScreenshotDraft.init); if let index = all.firstIndex(where: { $0.id == changed.id }) { all[index] = changed }; try store.save(t, screenshots: all) } catch { store.report(error) }
         } }
+        .sheet(isPresented: $showSupplementEditor) {
+            TradeSupplementEditor(tradeID: tradeID).environment(store)
+        }
     }
     private var sheetSize: CGSize {
         let visible = (NSApp.keyWindow?.screen ?? NSScreen.main)?.visibleFrame.size ?? CGSize(width: 1200, height: 900)
@@ -154,5 +213,157 @@ struct TradeDetailView: View {
             Text(L10n.text(title)).font(.system(size: 10, weight: .semibold)).tracking(0.4)
             Text(L10n.text(text)).font(.system(size: 10)).foregroundStyle(Palette.muted).lineLimit(2).frame(height: 30, alignment: .top)
         }.frame(width: 108, alignment: .leading)
+    }
+}
+
+struct TradeSupplementEditor: View {
+    @Environment(JournalStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    var tradeID: UUID
+
+    @State private var supplement = TradeSupplement()
+    @State private var newFill = ExecutionFill()
+    @State private var newChecklistLabel = ""
+    @State private var newChecklistPhase = "Öncesi"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text("Gerçekleşmeler (Fills) & Kontrol Listesi").font(.title2.weight(.bold))
+                Spacer()
+                Button("İptal") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Kaydet") {
+                    save()
+                    dismiss()
+                }
+                .buttonStyle(EdgeButtonStyle())
+            }
+
+            HStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Puan / Kontrat Değeri (Point Value)").font(.caption).foregroundStyle(Palette.muted)
+                    TextField("Point Value", value: $supplement.pointValue, format: .number)
+                        .textFieldStyle(EdgeTextFieldStyle())
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Tik Büyüklüğü (Tick Size)").font(.caption).foregroundStyle(Palette.muted)
+                    TextField("Tick Size", value: $supplement.tickSize, format: .number)
+                        .textFieldStyle(EdgeTextFieldStyle())
+                }
+            }
+
+            Divider()
+
+            Text("Emir Gerçekleşmeleri (Fills)").font(.headline)
+            HStack(spacing: 8) {
+                Picker("Yön", selection: $newFill.side) {
+                    Text("Entry (Giriş)").tag("Entry")
+                    Text("Exit (Çıkış)").tag("Exit")
+                }
+                .frame(width: 120)
+
+                TextField("Miktar", value: $newFill.quantity, format: .number)
+                    .textFieldStyle(EdgeTextFieldStyle())
+                    .frame(width: 70)
+
+                TextField("Fiyat", value: $newFill.price, format: .number)
+                    .textFieldStyle(EdgeTextFieldStyle())
+                    .frame(width: 90)
+
+                TextField("Komisyon", value: $newFill.fee, format: .number)
+                    .textFieldStyle(EdgeTextFieldStyle())
+                    .frame(width: 80)
+
+                TextField("Beklenen Fiyat", value: $newFill.expectedPrice, format: .number)
+                    .textFieldStyle(EdgeTextFieldStyle())
+                    .frame(width: 100)
+
+                Button("Ekle") {
+                    guard newFill.quantity > 0, newFill.price > 0 else { return }
+                    supplement.fills.append(newFill)
+                    newFill = ExecutionFill()
+                }
+                .buttonStyle(EdgeButtonStyle(prominent: false))
+            }
+
+            List {
+                ForEach(supplement.fills) { fill in
+                    HStack {
+                        Badge(text: fill.side, color: fill.side == "Entry" ? Palette.mint : Palette.blue)
+                        Text("\(fill.quantity, specifier: "%.1f") adet @ \(fill.price, specifier: "%.2f")")
+                        if let exp = fill.expectedPrice {
+                            Text("(Beklenen: \(exp, specifier: "%.2f"))").foregroundStyle(Palette.muted).font(.caption)
+                        }
+                        Spacer()
+                        Text("Masraf: \(fill.fee, specifier: "%.2f")").font(.caption)
+                    }
+                }
+                .onDelete { idx in
+                    supplement.fills.remove(atOffsets: idx)
+                }
+            }
+            .listStyle(.plain)
+            .frame(height: 140)
+
+            Divider()
+
+            Text("Kontrol Listesi Yanıtları").font(.headline)
+            HStack(spacing: 8) {
+                TextField("Kontrol maddesi", text: $newChecklistLabel)
+                    .textFieldStyle(EdgeTextFieldStyle())
+
+                Picker("Aşama", selection: $newChecklistPhase) {
+                    Text("Öncesi").tag("Öncesi")
+                    Text("Sonrası").tag("Sonrası")
+                }
+                .frame(width: 100)
+
+                Button("Madde Ekle") {
+                    let clean = newChecklistLabel.trimmingCharacters(in: .whitespaces)
+                    guard !clean.isEmpty else { return }
+                    supplement.checklist.append(ChecklistAnswer(label: clean, phase: newChecklistPhase, answer: true))
+                    newChecklistLabel = ""
+                }
+                .buttonStyle(EdgeButtonStyle(prominent: false))
+            }
+
+            List {
+                ForEach($supplement.checklist) { $item in
+                    HStack {
+                        Toggle(isOn: Binding(
+                            get: { item.answer ?? false },
+                            set: { item.answer = $0 }
+                        )) {
+                            Text(item.label)
+                        }
+                        Spacer()
+                        Badge(text: item.phase, color: item.phase == "Öncesi" ? Palette.blue : Palette.mint)
+                    }
+                }
+                .onDelete { idx in
+                    supplement.checklist.remove(atOffsets: idx)
+                }
+            }
+            .listStyle(.plain)
+            .frame(height: 140)
+        }
+        .padding(24)
+        .frame(width: 680, height: 680)
+        .background(Palette.canvas)
+        .onAppear {
+            if let existing = store.workspace.supplements[tradeID] {
+                supplement = existing
+            }
+        }
+    }
+
+    private func save() {
+        do {
+            try store.updateWorkspace { ws in
+                ws.supplements[tradeID] = supplement
+            }
+        } catch {
+            store.report(error)
+        }
     }
 }

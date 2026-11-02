@@ -54,5 +54,10 @@ import AppKit
         try render("screenshots", ScreenshotLibraryView(openTrade: { _ in }), width: 1225)
         try render("mistakes", MistakesView(), width: 1225)
         try render("statistics", AnalyticsView(mode: .statistics), width: 1225)
+        try render("research-lab", ResearchLabView(openTrade: { _ in }), width: 1225)
+        try render("quant-lab", QuantView(), width: 1225)
+        try render("planning", PlanningView(), width: 1225)
+        try render("csv-import", CSVImportView(), width: 1225)
+        try render("accounts-risk", AccountRiskView(), width: 1225)
     }
 }

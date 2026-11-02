@@ -24,15 +24,16 @@ struct JournalBackup: Codable {
     var instruments: [InstrumentArchive]
     var rules: [RuleArchive]
     var preferences: JournalPreferences
+    var workspace: WorkspaceState?
 }
 enum BackupService {
-    @MainActor static func archive(_ store: JournalStore) throws -> JournalBackup {
+    @MainActor static func archive(_ store: JournalStore, legacy: Bool = false) throws -> JournalBackup {
         let screenshots = try store.trades.flatMap { trade in try (store.model(trade.id)?.screenshots ?? []).map { ScreenshotArchive(tradeID: trade.id, screenshot: try ScreenshotDraft($0)) } }
         let setups = try store.setups.map { s in
             let p = s.playbook
             return SetupArchive(id: s.id, name: s.name, summary: s.summary, playbookID: p?.id ?? UUID(), conditions: p?.conditions ?? "", entry: p?.entryRules ?? "", invalidation: p?.invalidationRules ?? "", target: p?.targetRules ?? "", risk: p?.riskRules ?? "", images: try decodeImages(p?.idealImagesData ?? Data()))
         }
-        return JournalBackup(trades: store.trades, screenshots: screenshots, setups: setups, reviews: store.reviews.map { ReviewArchive(id: $0.id, period: $0.period, date: $0.date, worked: $0.worked, didNot: $0.didNot, repeatNext: $0.repeatNext, stop: $0.stop, adjustment: $0.adjustment) }, instruments: store.instruments.map { InstrumentArchive(id: $0.id, symbol: $0.symbol, enabled: $0.enabled) }, rules: store.customRules.map { RuleArchive(id: $0.id, name: $0.name) }, preferences: store.preferences)
+        return JournalBackup(version: legacy ? 1 : 2, trades: store.trades, screenshots: screenshots, setups: setups, reviews: store.reviews.map { ReviewArchive(id: $0.id, period: $0.period, date: $0.date, worked: $0.worked, didNot: $0.didNot, repeatNext: $0.repeatNext, stop: $0.stop, adjustment: $0.adjustment) }, instruments: store.instruments.map { InstrumentArchive(id: $0.id, symbol: $0.symbol, enabled: $0.enabled) }, rules: store.customRules.map { RuleArchive(id: $0.id, name: $0.name) }, preferences: store.preferences, workspace: legacy ? nil : store.workspace)
     }
     static func decodeImages(_ data: Data) throws -> [ScreenshotDraft] { data.isEmpty ? [] : try JSONDecoder().decode([ScreenshotDraft].self, from: data) }
     static func encode(_ archive: JournalBackup) throws -> Data {
@@ -46,7 +47,8 @@ enum BackupService {
         try validate(backup); return backup
     }
     static func validate(_ backup: JournalBackup) throws {
-        guard backup.version == 1 else { throw JournalError(message: "Unsupported backup version \(backup.version).") }
+        guard [1, 2].contains(backup.version), backup.version != 2 || backup.workspace != nil else { throw JournalError(message: "Unsupported or incomplete backup version \(backup.version).") }
+        if let workspace = backup.workspace { try workspace.validate(tradeIDs: Set(backup.trades.map(\.id))) }
         func unique(_ ids: [UUID]) -> Bool { Set(ids).count == ids.count }
         guard unique(backup.trades.map(\.id)), unique(backup.setups.map(\.id)), unique(backup.setups.map(\.playbookID)), unique(backup.reviews.map(\.id)), unique(backup.screenshots.map { $0.screenshot.id }), unique(backup.instruments.map(\.id)), unique(backup.rules.map(\.id)) else { throw JournalError(message: "Backup contains duplicate identifiers.") }
         let tradeIDs = Set(backup.trades.map(\.id)), setupIDs = Set(backup.setups.map(\.id))
@@ -74,6 +76,20 @@ enum BackupService {
             store.preferences = backup.preferences
             try store.savePreferences()
             try store.commit {
+                if let incoming = backup.workspace {
+                    var merged = store.workspace
+                    for account in incoming.accounts {
+                        merged.accounts.removeAll { $0.id == account.id }; merged.accounts.append(account)
+                    }
+                    merged.assignments.merge(incoming.assignments) { _, new in new }
+                    merged.supplements.merge(incoming.supplements) { _, new in new }
+                    for preset in incoming.presets { merged.presets.removeAll { $0.id == preset.id }; merged.presets.append(preset) }
+                    for template in incoming.templates { merged.templates.removeAll { $0.id == template.id }; merged.templates.append(template) }
+                    for plan in incoming.plans { merged.plans.removeAll { $0.id == plan.id }; merged.plans.append(plan) }
+                    merged.widgets = incoming.widgets; merged.hiddenWidgets = incoming.hiddenWidgets
+                    merged.compactRows = incoming.compactRows; merged.showProcess = incoming.showProcess; merged.showR = incoming.showR
+                    try store.persistWorkspace(merged)
+                }
                 for archive in backup.setups {
                     let setup = store.setups.first { $0.id == archive.id } ?? Setup(id: archive.id, name: archive.name)
                     store.context.insert(setup); setup.name = archive.name; setup.summary = archive.summary

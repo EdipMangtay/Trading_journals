@@ -1,10 +1,29 @@
 import SwiftUI
 
 enum JournalPage: String, CaseIterable, Identifiable {
+    case accounts = "Hesaplar & Risk", research = "Araştırma Laboratuvarı", quant = "Senaryo Analizi", planning = "Günlük Plan", dataImport = "CSV Aktarım"
     case dashboard = "Dashboard", trades = "Trades", newTrade = "New Trade", calendar = "Calendar", analytics = "Analytics", setups = "Setup Analysis", playbook = "Playbook", mistakes = "Mistakes", screenshots = "Screenshots", statistics = "Statistics", review = "Review", settings = "Settings"
     var id: String { rawValue }
     var icon: String {
-        switch self { case .dashboard: return "square.grid.2x2"; case .trades: return "list.bullet.rectangle"; case .newTrade: return "plus.app"; case .calendar: return "calendar"; case .analytics: return "chart.xyaxis.line"; case .setups: return "square.stack.3d.up"; case .playbook: return "book.closed"; case .mistakes: return "exclamationmark.shield"; case .screenshots: return "photo.on.rectangle"; case .statistics: return "chart.bar.xaxis"; case .review: return "checkmark.rectangle"; case .settings: return "slider.horizontal.3" }
+        switch self {
+        case .accounts: return "building.columns"
+        case .research: return "slider.horizontal.2.square"
+        case .quant: return "chart.line.uptrend.xyaxis"
+        case .planning: return "checklist"
+        case .dataImport: return "square.and.arrow.down"
+        case .dashboard: return "square.grid.2x2"
+        case .trades: return "list.bullet.rectangle"
+        case .newTrade: return "plus.app"
+        case .calendar: return "calendar"
+        case .analytics: return "chart.xyaxis.line"
+        case .setups: return "square.stack.3d.up"
+        case .playbook: return "book.closed"
+        case .mistakes: return "exclamationmark.shield"
+        case .screenshots: return "photo.on.rectangle"
+        case .statistics: return "chart.bar.xaxis"
+        case .review: return "checkmark.rectangle"
+        case .settings: return "slider.horizontal.3"
+        }
     }
 }
 struct EditorRoute: Identifiable { let id = UUID(); var record: TradeRecord? }
@@ -65,8 +84,8 @@ struct RootView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 21) {
                     navigationGroup("GÜNLÜK", pages: [.dashboard, .trades, .calendar])
-                    navigationGroup("PERFORMANS", pages: [.analytics, .setups, .statistics, .mistakes])
-                    navigationGroup("GELİŞİM", pages: [.playbook, .screenshots, .review])
+                    navigationGroup("PERFORMANS", pages: [.research, .accounts, .quant, .analytics, .setups, .statistics, .mistakes])
+                    navigationGroup("GELİŞİM", pages: [.planning, .playbook, .screenshots, .review, .dataImport])
                 }.padding(.horizontal, 12).padding(.bottom, 16)
             }.scrollIndicators(.hidden)
             VStack(alignment: .leading, spacing: 14) {
@@ -119,9 +138,7 @@ struct RootView: View {
                 Text(L10n.text(page.rawValue)).font(.system(size: 13, weight: .semibold)).accessibilityAddTraits(.isHeader)
             }
             Spacer(minLength: 12)
-            Label(L10n.text("LOCAL · PRIVATE"), systemImage: "lock.shield").font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.mint)
-                .padding(.horizontal, 9).padding(.vertical, 7).background(Palette.mint.opacity(0.045), in: Capsule())
-                .help("Günlük ve görseller bu bilgisayarda saklanır.")
+            AccountPicker()
             Rectangle().fill(Palette.line).frame(width: 1, height: 21).padding(.horizontal, 3)
             Button(action: showSearch) {
                 HStack(spacing: 9) {
@@ -146,6 +163,11 @@ struct RootView: View {
     }
     @ViewBuilder private var content: some View {
         switch page {
+        case .accounts: AccountRiskView()
+        case .research: ResearchLabView(openTrade: openTrade)
+        case .quant: QuantView()
+        case .planning: PlanningView()
+        case .dataImport: CSVImportView()
         case .dashboard: DashboardView(openTrade: openTrade, newTrade: { editor = EditorRoute() }, openDemo: openDemo)
         case .trades, .newTrade: TradesView(initialQuery: globalQuery, openTrade: openTrade, newTrade: { editor = EditorRoute() })
         case .calendar: CalendarView(openTrade: openTrade)

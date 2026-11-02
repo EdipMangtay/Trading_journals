@@ -27,7 +27,22 @@ struct JournalError: LocalizedError {
     private(set) var lastBackupDate: Date?
     private(set) var backupErrorMessage: String?
     private var dailyBackupDay: String?
-    static let schema = Schema(versionedSchema: JournalSchemaV1.self)
+    private(set) var workspace = WorkspaceState()
+    var selectedAccount: TradingAccount { workspace.accounts.first { $0.id == workspace.selectedAccountID } ?? TradingAccount(id: TradingAccount.legacyID, name: "Eski günlük", currency: preferences.currency, startingBalance: preferences.accountSize) }
+    var scopedTrades: [TradeRecord] { trades.filter { accountID(for: $0.id) == selectedAccount.id } }
+    var accountCurrency: String { selectedAccount.currency }
+    func accountID(for tradeID: UUID) -> UUID { workspace.assignments[tradeID] ?? TradingAccount.legacyID }
+    func currency(for tradeID: UUID) -> String { workspace.accounts.first { $0.id == accountID(for: tradeID) }?.currency ?? preferences.currency }
+    func updateWorkspace(_ change: (inout WorkspaceState) throws -> Void) throws {
+        var next = workspace; try change(&next); try next.validate(tradeIDs: Set(trades.map(\.id)))
+        try commit { try persistWorkspace(next) }
+    }
+    func persistWorkspace(_ value: WorkspaceState) throws {
+        let data = try JSONEncoder().encode(value)
+        if let model = try context.fetch(FetchDescriptor<WorkspaceDocument>()).first { model.payload = data }
+        else { context.insert(WorkspaceDocument(payload: data)) }
+    }
+    static let schema = Schema(versionedSchema: JournalSchemaV2.self)
     init(demo: Bool, storageURL: URL? = nil) throws {
         isDemo = demo
         usesLegacyPreferences = !demo && storageURL == nil
@@ -58,6 +73,11 @@ struct JournalError: LocalizedError {
             for symbol in Catalog.instruments { context.insert(Instrument(symbol: symbol)) }
             try context.save(); try refresh()
         }
+        if workspace.accounts.isEmpty {
+            var initial = WorkspaceState()
+            initial.accounts = [TradingAccount(id: TradingAccount.legacyID, name: "Eski günlük / varsayılan", currency: preferences.currency, startingBalance: preferences.accountSize)]
+            try persistWorkspace(initial); try context.save(); try refresh()
+        }
         if demo { try DemoData.populate(self) }
         else {
             reloadBackupMetadata()
@@ -70,6 +90,9 @@ struct JournalError: LocalizedError {
         return folder.appendingPathComponent("Journal.store")
     }
     func refresh() throws {
+        if let document = try context.fetch(FetchDescriptor<WorkspaceDocument>()).first {
+            workspace = try JSONDecoder().decode(WorkspaceState.self, from: document.payload)
+        }
         let fetched = try context.fetch(FetchDescriptor<Trade>(sortBy: [SortDescriptor(\.date, order: .reverse)]))
         let decoded = try fetched.map { try $0.record() }
         models = Dictionary(uniqueKeysWithValues: fetched.map { ($0.id, $0) }); trades = decoded
@@ -90,10 +113,13 @@ struct JournalError: LocalizedError {
         } catch { context.rollback(); try? refresh(); throw error }
         ensureDailyRecoverySnapshot()
     }
-    func save(_ record: TradeRecord, screenshots: [ScreenshotDraft]) throws {
+    func save(_ record: TradeRecord, screenshots: [ScreenshotDraft], accountID: UUID? = nil) throws {
         if let error = record.validationError { throw JournalError(message: error) }
+        let assigned = accountID ?? (models[record.id] == nil ? selectedAccount.id : self.accountID(for: record.id))
+        guard workspace.accounts.contains(where: { $0.id == assigned }) else { throw JournalError(message: "Hesap bulunamadı.") }
         try commit {
             let model = try upsert(record)
+            var next = workspace; next.assignments[record.id] = assigned; try persistWorkspace(next)
             let retained = Set(screenshots.map(\.id))
             for shot in model.screenshots where !retained.contains(shot.id) { context.delete(shot) }
             for shot in screenshots {
@@ -124,7 +150,10 @@ struct JournalError: LocalizedError {
     func deleteTrade(_ id: UUID) throws {
         guard let trade = models[id] else { return }
         try createRecoverySnapshot(reason: "before-delete-trade")
-        try commit { context.delete(trade) }
+        try commit {
+            var next = workspace; next.assignments[id] = nil; next.supplements[id] = nil
+            try persistWorkspace(next); context.delete(trade)
+        }
     }
     func deleteSetup(_ setup: Setup) throws {
         try createRecoverySnapshot(reason: "before-delete-setup")

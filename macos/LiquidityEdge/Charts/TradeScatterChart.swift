@@ -200,10 +200,47 @@ struct TradeScatterChart: View {
                     .accessibilityValue("\(horizontal.rawValue): \(xFormatted(point.x)), \(vertical.rawValue): \(yFormatted(point.y))")
             }
             if let selected {
+                RuleMark(x: .value("Seçilen X", selected.x))
+                    .foregroundStyle(processColor(selected.trade).opacity(0.25))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                RuleMark(y: .value("Seçilen Y", selected.y))
+                    .foregroundStyle(processColor(selected.trade).opacity(0.25))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+
+                // Glowing concentric halos
                 PointMark(x: .value(horizontal.rawValue, selected.x), y: .value(vertical.rawValue, selected.y))
-                    .symbolSize(230).foregroundStyle(processColor(selected.trade).opacity(0.14))
+                    .symbolSize(320).foregroundStyle(processColor(selected.trade).opacity(0.16))
                 PointMark(x: .value(horizontal.rawValue, selected.x), y: .value(vertical.rawValue, selected.y))
-                    .symbol(selected.trade.compliant ? .circle : .diamond).symbolSize(68).foregroundStyle(processColor(selected.trade))
+                    .symbolSize(130).foregroundStyle(processColor(selected.trade).opacity(0.35))
+                PointMark(x: .value(horizontal.rawValue, selected.x), y: .value(vertical.rawValue, selected.y))
+                    .symbol(selected.trade.compliant ? .circle : .diamond).symbolSize(72)
+                    .foregroundStyle(processColor(selected.trade))
+                    .annotation(position: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 5) {
+                                Text(selected.trade.instrument + " " + selected.trade.direction)
+                                    .font(.system(size: 11, weight: .bold))
+                                Badge(text: selected.trade.grade, color: processColor(selected.trade))
+                            }
+                            HStack(spacing: 6) {
+                                Text(yFormatted(selected.y))
+                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(Palette.outcome(selected.y))
+                                Text("· " + selected.trade.setupName)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(Palette.muted)
+                            }
+                        }
+                        .padding(.horizontal, 9).padding(.vertical, 5)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .background(Palette.canvas.opacity(0.85), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(processColor(selected.trade).opacity(0.4), lineWidth: 1))
+                        .shadow(color: Color.black.opacity(0.35), radius: 6, x: 0, y: 3)
+                        .transition(.scale(scale: 0.9).combined(with: .opacity))
+                    }
+                    .annotation(position: .overlay) {
+                        Circle().fill(Color.white).frame(width: 3.5, height: 3.5)
+                    }
             }
         }
         .chartXScale(domain: xDomain(data), range: .plotDimension(padding: 14))
@@ -238,6 +275,7 @@ struct TradeScatterChart: View {
         }
         .font(.system(size: 9, weight: .medium)).foregroundStyle(Palette.muted)
         .frame(height: 310)
+        .animation(.spring(response: 0.28, dampingFraction: 0.78), value: selectedID)
         .accessibilityLabel("\(horizontal.rawValue) ve \(vertical.rawValue) dağılım grafiği, \(data.count) işlem")
     }
     private func select(at location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy, data: [Observation]) {

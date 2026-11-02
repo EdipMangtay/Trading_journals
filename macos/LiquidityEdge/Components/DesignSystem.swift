@@ -203,18 +203,40 @@ struct SegmentedTabs<Value: Hashable>: View {
     let options: [Value]
     @Binding var selection: Value
     var title: (Value) -> String
+    @Namespace private var tabNamespace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         HStack(spacing: 3) {
             ForEach(options, id: \.self) { value in
-                Button { selection = value } label: {
+                let isSelected = selection == value
+                Button {
+                    selection = value
+                } label: {
                     Text(L10n.text(title(value)))
-                        .font(.system(size: 11, weight: selection == value ? .semibold : .medium))
-                        .padding(.horizontal, 12).frame(minHeight: 31)
-                }.buttonStyle(EdgeSegmentStyle(selected: selection == value))
-                    .accessibilityAddTraits(selection == value ? [.isSelected] : [])
+                        .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+                        .foregroundStyle(isSelected ? Palette.ink : Palette.muted)
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: 29)
+                        .background {
+                            if isSelected {
+                                RoundedRectangle(cornerRadius: 7)
+                                    .fill(Palette.raised)
+                                    .matchedGeometryEffect(id: "tabHighlight", in: tabNamespace)
+                                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Palette.line, lineWidth: 1))
+                                    .shadow(color: Color.black.opacity(0.12), radius: 3, x: 0, y: 1)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .contentShape(RoundedRectangle(cornerRadius: 7))
+                .accessibilityAddTraits(isSelected ? [.isSelected] : [])
             }
-        }.padding(4).background(Palette.field, in: RoundedRectangle(cornerRadius: 11))
-            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Palette.line.opacity(0.85)))
+        }
+        .padding(4)
+        .background(Palette.field, in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Palette.line.opacity(0.85)))
+        .animation(!reduceMotion ? .spring(response: 0.28, dampingFraction: 0.76) : nil, value: selection)
     }
 }
 struct Panel<Content: View>: View {
