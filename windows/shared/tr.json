@@ -558,5 +558,9 @@
   "Invalid image.": "Geçersiz görsel.",
   "File exceeds the 512 MB import limit.": "Dosya, 512 MB içe aktarma sınırını aşıyor.",
   "Import is limited to 512 MB.": "İçe aktarma sınırı 512 MB'dir.",
-  "CSV must use UTF-8 encoding.": "CSV dosyası UTF-8 kodlamalı olmalı."
+  "CSV must use UTF-8 encoding.": "CSV dosyası UTF-8 kodlamalı olmalı.",
+  "Research": "Araştırma Laboratuvarı",
+  "Accounts": "Hesaplar & Risk",
+  "Quant": "Senaryo Analizi",
+  "Planning": "Günlük Plan"
 }

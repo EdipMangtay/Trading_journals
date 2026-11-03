@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { imagePipeline, loadImage, validateImages } from './images.mjs';
 import { JournalStorage } from './storage.mjs';
+import { legacyBackup, portableBackup, withWorkspace } from '../shared/workspace-state.mjs';
 import { parseBackup, mergeBackup, exportCSV, importCSV } from '../shared/core.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -52,11 +53,12 @@ else {
     handle('journal:load', () => storage.read());
     handle('journal:path', () => storage.file);
     handle('journal:save', value => storage.write(value));
-    handle('journal:export', async value => {
+    handle('journal:export', async (value, legacy = false) => {
       const backup = value ? await validateImages(parseBackup(value)) : await storage.read();
       const { canceled, filePath } = await dialog.showSaveDialog(window, { defaultPath: `LiquidityEdge-${new Date().toISOString().slice(0, 10)}.json`, filters: [{ name: tr("Journal backup"), extensions: ['json'] }] });
       if (canceled) return false;
-      await fs.writeFile(filePath, JSON.stringify({ ...backup, createdAt: Date.now() }, null, 2)); return true;
+      const archive = legacy ? legacyBackup(backup) : portableBackup(backup);
+      await fs.writeFile(filePath, JSON.stringify({ ...archive, createdAt: Date.now() }, null, 2)); return true;
     });
     handle('journal:import', async (value, demo = false) => {
       const { canceled, filePaths } = await dialog.showOpenDialog(window, { properties: ['openFile'], filters: [{ name: tr("Journal backup"), extensions: ['json'] }] });
@@ -74,19 +76,33 @@ else {
       }
       return storage.write(mergeBackup(current, incoming));
     });
+    handle('journal:pdf', async () => {
+      const { canceled, filePath } = await dialog.showSaveDialog(window, {
+        defaultPath: 'LiquidityEdge-rapor.pdf', filters: [{ name: 'PDF', extensions: ['pdf'] }]
+      });
+      if (canceled) return false;
+      const pdf = await window.webContents.printToPDF({ printBackground: true, pageSize: 'A4' });
+      await fs.writeFile(filePath, pdf);
+      return true;
+    });
     handle('journal:csv-export', async value => {
       const backup = value ? parseBackup(value) : await storage.read();
       const { canceled, filePath } = await dialog.showSaveDialog(window, { defaultPath: 'LiquidityEdge-trades.csv', filters: [{ name: 'CSV', extensions: ['csv'] }] });
       if (canceled) return false;
-      await fs.writeFile(filePath, exportCSV(backup.trades)); return true;
+      await fs.writeFile(filePath, exportCSV(legacyBackup(backup).trades)); return true;
     });
     handle('journal:csv-import', async (value, demo = false) => {
       const { canceled, filePaths } = await dialog.showOpenDialog(window, { properties: ['openFile'], filters: [{ name: 'CSV', extensions: ['csv'] }] });
       if (canceled) return null;
-      const current = demo ? parseBackup(value) : await storage.read(), records = importCSV(await readLimited(filePaths[0]), current.setups);
+      const current = withWorkspace(demo ? parseBackup(value) : await storage.read()), records = importCSV(await readLimited(filePaths[0]), current.setups);
       const result = await dialog.showMessageBox(window, { type: 'question', message: tr(`Import ${records.length} trades?`), buttons: [tr("Cancel"), tr("Import")], defaultId: 0, cancelId: 0 });
       if (result.response !== 1) return null;
-      const byID = new Map(current.trades.map(t => [t.id.toLowerCase(), t])); records.forEach(t => byID.set(t.id.toLowerCase(), t));
+      const byID = new Map(current.trades.map(t => [t.id.toLowerCase(), t]));
+      for (const trade of records) {
+        const key = trade.id.toLowerCase();
+        if (!byID.has(key)) current.workspace.assignments[key] = current.workspace.selectedAccountID;
+        byID.set(key, trade);
+      }
       const merged = parseBackup({ ...current, trades: [...byID.values()] });
       return demo ? merged : storage.write(merged);
     });

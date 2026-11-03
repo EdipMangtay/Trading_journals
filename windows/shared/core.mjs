@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import Papa from 'papaparse';
 import { t as translate } from './i18n.mjs';
+import { legacyAccountID, normalizeWorkspace } from './workspace-state.mjs';
 
 export const catalog = {
   sweeps: ['BSL Sweep', 'SSL Sweep', 'Equal Highs', 'Equal Lows', 'Previous Day High', 'Previous Day Low', 'Previous Week High', 'Previous Week Low', 'Session High', 'Session Low', 'Internal Liquidity', 'External Liquidity'],
@@ -59,7 +60,7 @@ export const preferencesSchema = object({
   sessions: strings, sessionHours: z.record(z.string(), string)
 });
 export const backupSchema = object({
-  version: z.literal(1), createdAt: date, trades: z.array(tradeSchema).max(100000),
+  version: z.union([z.literal(1), z.literal(2)]), createdAt: date, trades: z.array(tradeSchema).max(100000),
   screenshots: z.array(object({ tradeID: uuid, screenshot: image })).max(100000),
   setups: z.array(object({ id: uuid, name: string.trim().min(1), summary: string, playbookID: uuid, conditions: string, entry: string, invalidation: string, target: string, risk: string, images: z.array(image) })),
   reviews: z.array(object({ id: uuid, period: string, date, worked: string, didNot: string, repeatNext: string, stop: string, adjustment: string })),
@@ -78,6 +79,8 @@ export const backupSchema = object({
 export function parseBackup(value) {
   const result = backupSchema.safeParse(value);
   if (!result.success) throw new Error(result.error.issues.map(e => `${e.path.join('.')}: ${e.message}`).slice(0, 5).join('\n'));
+  if (result.data.version === 2 && !result.data.workspace) throw new Error('V2 yedeğinin çalışma alanı eksik.');
+  if (result.data.workspace) result.data.workspace = normalizeWorkspace(result.data.workspace, result.data.preferences, new Set(result.data.trades.map(t => t.id)));
   return result.data;
 }
 export function newTrade(id = crypto.randomUUID(), timestamp = Date.now()) {
@@ -198,6 +201,21 @@ export function mergeBackup(current, incoming) {
   }
   const changed = new Set(incoming.trades.map(t => t.id.toLowerCase()));
   merged.screenshots = [...current.screenshots.filter(s => !changed.has(s.tradeID.toLowerCase())), ...incoming.screenshots];
+  if (incoming.workspace) {
+    const previous = normalizeWorkspace(current.workspace, current.preferences);
+    const next = { ...previous, ...incoming.workspace };
+    for (const key of ['accounts', 'presets', 'templates', 'plans']) {
+      next[key] = [...new Map([...previous[key], ...incoming.workspace[key]].map(item => [item.id.toLowerCase(), item])).values()];
+    }
+    next.assignments = { ...previous.assignments, ...incoming.workspace.assignments };
+    next.supplements = { ...previous.supplements, ...incoming.workspace.supplements };
+    merged.workspace = next;
+    merged.version = 2;
+  } else if (merged.workspace) {
+    const legacy = merged.workspace.accounts.find(account => account.id === legacyAccountID);
+    legacy.currency = incoming.preferences.currency;
+    legacy.startingBalance = incoming.preferences.accountSize;
+  }
   return parseBackup(merged);
 }
 export function exportCSV(trades) {
@@ -206,7 +224,7 @@ export function exportCSV(trades) {
     follows_plan: t.followsPlan, broken_rules: t.brokenRules.join(' | '), classification: classification(t), notes: t.notes.thesis, record_json: JSON.stringify(t)
   })), { header: true, quotes: true, escapeFormulae: /^[=+\-@\t\r]/ });
 }
-export function importCSV(text, setups = []) {
+export function importCSV(text, setups = [], { allowDuplicateIDs = false } = {}) {
   const parsed = Papa.parse(text, { header: true, skipEmptyLines: 'greedy', transformHeader: h => h.trim().toLowerCase().replace(/^\uFEFF/, '') });
   if (parsed.errors.length || Object.keys(parsed.meta.renamedHeaders || {}).length) throw new Error('CSV has malformed rows or duplicate columns.');
   const records = parsed.data.map((row, index) => {
@@ -224,7 +242,7 @@ export function importCSV(text, setups = []) {
     return tradeSchema.parse(trade);
   });
   if (!records.length) throw new Error('CSV contains no trades.');
-  if (new Set(records.map(t => t.id.toLowerCase())).size !== records.length) throw new Error('Duplicate trade identifiers.');
+  if (!allowDuplicateIDs && new Set(records.map(t => t.id.toLowerCase())).size !== records.length) throw new Error('Duplicate trade identifiers.');
   return records;
 }
 

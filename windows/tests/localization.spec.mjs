@@ -10,7 +10,7 @@ test('Turkish labels, independent dashboard, native defaults and clean layout', 
   const app = await electron.launch({ ...options, env: { ...process.env, JOURNAL_TEST_DATA_DIR: directory } });
   try {
     const page = await app.firstWindow();
-    await expect(page.getByRole('heading', { name: 'Avantajın, sürecinde.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Performans masası' })).toBeVisible();
     const nav = name => page.locator(`[data-view="${name}"]`).click();
     await nav('Settings'); await page.locator('[data-action="demo"]').click();
     const untranslated = [];

@@ -16,7 +16,7 @@ test('complete offline journal, all screens, images, backup and persistence',asy
   const press=async name=>page.getByRole('button',{name,exact:true}).click();
   try{
     app=await launch();page=await app.firstWindow();watch();
-    await expect(page.getByRole('heading',{name:"Avantajın, sürecinde."})).toBeVisible();
+    await expect(page.getByRole('heading',{name:"Performans masası"})).toBeVisible();
     await expect(page.locator('.demo-banner')).toHaveCount(0);
     const fresh=await page.evaluate(()=>window.journal.load());
     for(const field of ['trades','setups','reviews','screenshots'])expect(fresh[field]).toEqual([]);
@@ -35,7 +35,7 @@ test('complete offline journal, all screens, images, backup and persistence',asy
     await page.screenshot({path:'test-results/desktop-dashboard.png',fullPage:true});
     await page.screenshot({path:'test-results/dashboard-viewport.png'});
     expect(await page.locator('#equity').evaluate(c=>Array.from(c.getContext('2d').getImageData(0,0,c.width,c.height).data).some((v,i)=>i%4===3&&v>0))).toBe(true);
-    for(const name of ["İşlemler","Takvim","Analizler","Strateji Analizi","Strateji Defteri","Hatalar","Ekran Görüntüleri","İstatistikler","Değerlendirme","Ayarlar"]){
+    for(const name of ["İşlemler","Takvim","Hesaplar & Risk","Araştırma Laboratuvarı","Senaryo Analizi","Günlük Plan","CSV Aktarım","Analizler","Strateji Analizi","Strateji Defteri","Hatalar","Ekran Görüntüleri","İstatistikler","Değerlendirme","Ayarlar"]){
       await nav(name);await expect(page.locator('main h1')).toBeVisible();await page.screenshot({path:`test-results/${name.toLowerCase().replaceAll(' ','-')}.png`,fullPage:true});
     }
     await nav("Genel Bakış");await page.setViewportSize({width:390,height:844});
@@ -56,7 +56,7 @@ test('complete offline journal, all screens, images, backup and persistence',asy
     await expect.poll(()=>viewer.locator('img').evaluate(i=>i.naturalWidth)).toBeGreaterThan(0);
     await viewer.getByRole('button',{name:"Ok",exact:true}).click();const box=await viewer.locator('canvas').boundingBox();await page.mouse.move(box.x+box.width*.2,box.y+box.height*.2);await page.mouse.down();await page.mouse.move(box.x+box.width*.7,box.y+box.height*.7);await page.mouse.up();
     await expect(viewer.locator('.annotation-count')).toHaveText('1 işaretleme');await viewer.getByRole('button',{name:"Değerlendirmeyi kaydet",exact:true}).click();await press("İşlemi kaydet");await expect(page.locator('#editor')).not.toBeVisible();
-    await nav("İşlemler");await expect(page.locator('.trade-rows')).toContainText('$245,00');await page.locator('[data-trade]').click();await expect(page.locator('#editor')).toContainText('Offline persistence <script>alert(1)</script>');await press("İşlemi düzenle");await page.getByLabel('Brüt K/Z USD',{exact:true}).fill('999');await press("Vazgeç");await expect(page.locator('.trade-rows')).toContainText('$245,00');
+    await nav("İşlemler");await expect(page.locator('.trade-rows')).toContainText('$245,00');await page.locator('[data-trade]').click();await press('Tam ayrıntıyı aç');await expect(page.locator('#editor')).toContainText('Offline persistence <script>alert(1)</script>');await press("İşlemi düzenle");await page.getByLabel('Brüt K/Z USD',{exact:true}).fill('999');await press("Vazgeç");await expect(page.locator('.trade-rows')).toContainText('$245,00');
     await page.getByLabel("İşlemlerde ara").fill('kurallı qt');await expect(page.locator('[data-trade]')).toHaveCount(1);await press("Sıfırla");
     await nav("Değerlendirme");await press("Yeni değerlendirme");await page.getByLabel("Ne işe yaradı?",{exact:true}).fill('Patient execution');await page.getByLabel("Sonraki dönem için tek değişikliğim ne?").fill('Patient execution');await expect(page.locator('#review-snapshot')).toContainText('$245,00');await press("Değerlendirmeyi kaydet");await expect(page.getByText('Patient execution',{exact:true})).toBeVisible();
     await nav("Ayarlar");await page.getByLabel("Saat dilimi",{exact:true}).fill('Europe/Istanbul');await press("Tercihleri kaydet");await expect(page.locator('#toast')).toHaveText("Tercihler kaydedildi.");await expect(page.getByLabel("Saat dilimi",{exact:true})).toHaveValue('Europe/Istanbul');
@@ -65,7 +65,7 @@ test('complete offline journal, all screens, images, backup and persistence',asy
     await fs.copyFile(backup,'test-results/windows-backup.json');
     await app.close();app=await launch();page=await app.firstWindow();watch();await nav("İşlemler");await expect(page.locator('[data-trade]')).toHaveCount(1);await expect(page.locator('.trade-rows')).toContainText('$245,00');
     await nav("Ayarlar");await expect(page.getByLabel("Saat dilimi",{exact:true})).toHaveValue('Europe/Istanbul');await press("Demoyu aç");await nav("İşlemler");await expect(page.locator('[data-trade]')).toHaveCount(28);await page.locator('.demo-banner').getByRole('button',{name:"Günlüğüme dön"}).click();await expect(page.locator('[data-trade]')).toHaveCount(1);
-    await page.locator('[data-trade]').click();await press("Sil");await page.locator('#confirm').getByRole('button',{name:"Sil",exact:true}).click();await expect(page.locator('[data-trade]')).toHaveCount(0);
+    await page.locator('[data-trade]').click();await press('Tam ayrıntıyı aç');await press("Sil");await page.locator('#confirm').getByRole('button',{name:"Sil",exact:true}).click();await expect(page.locator('[data-trade]')).toHaveCount(0);
     await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});dialog.showMessageBox=async()=>({response:1});},backup);await nav("Ayarlar");await press("JSON yedeğini geri yükle");await nav("İşlemler");await expect(page.locator('[data-trade]')).toHaveCount(1);
     expect(errors).toEqual([]);
   }catch(error){if(page&&!page.isClosed()){console.error('Application message:',await page.locator('#toast').textContent());await page.screenshot({path:testInfo.outputPath('failure.png')});}throw error;
