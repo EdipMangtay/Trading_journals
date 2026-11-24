@@ -6,10 +6,20 @@ struct PlanningView: View {
     @State private var selectedDate = Date()
     @State private var activeTab = "Daily Plan"
     @State private var currentPlan = DailyPlan(accountID: TradingAccount.legacyID)
-    @State private var editingTemplate: ChecklistTemplate?
-    @State private var showNewTemplate = false
+    @State private var activeSheet: PlanningSheet?
     @State private var newTemplateName = ""
     @State private var saveMessage: String?
+
+    private enum PlanningSheet: Identifiable {
+        case editTemplate(ChecklistTemplate)
+        case newTemplate
+        var id: String {
+            switch self {
+            case .editTemplate(let t): return "edit-\(t.id.uuidString)"
+            case .newTemplate: return "new-template"
+            }
+        }
+    }
 
     var body: some View {
         ScrollView {
@@ -38,13 +48,15 @@ struct PlanningView: View {
         .onAppear(perform: loadPlan)
         .onChange(of: selectedDate) { _, _ in loadPlan() }
         .onChange(of: store.selectedAccount.id) { _, _ in loadPlan() }
-        .sheet(item: $editingTemplate) { tmpl in
-            ChecklistTemplateEditor(template: tmpl) { updated in
-                saveTemplate(updated)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .editTemplate(let tmpl):
+                ChecklistTemplateEditor(template: tmpl) { updated in
+                    saveTemplate(updated)
+                }
+            case .newTemplate:
+                newTemplateSheet
             }
-        }
-        .sheet(isPresented: $showNewTemplate) {
-            newTemplateSheet
         }
     }
 
@@ -99,7 +111,7 @@ struct PlanningView: View {
                     Panel(title: "PİYASA SENARYOLARI VE YÖN TAHMİNİ (BIAS)") {
                         TextEditor(text: $currentPlan.scenarios)
                             .font(.system(size: 13))
-                            .frame(minHeight: 110)
+                            .frame(height: 112)
                             .scrollContentBackground(.hidden)
                             .padding(8)
                             .background(Palette.field.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
@@ -108,7 +120,7 @@ struct PlanningView: View {
                     Panel(title: "ÖNEMLİ LİKİDİTE ALANLARI (DRAW ON LIQUIDITY)") {
                         TextEditor(text: $currentPlan.liquidity)
                             .font(.system(size: 13))
-                            .frame(minHeight: 110)
+                            .frame(height: 112)
                             .scrollContentBackground(.hidden)
                             .padding(8)
                             .background(Palette.field.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
@@ -124,7 +136,7 @@ struct PlanningView: View {
                     Panel(title: "STRATEJİ ODAĞI (SETUP ODAĞI)") {
                         TextEditor(text: $currentPlan.focus)
                             .font(.system(size: 13))
-                            .frame(minHeight: 110)
+                            .frame(height: 112)
                             .scrollContentBackground(.hidden)
                             .padding(8)
                             .background(Palette.field.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
@@ -133,7 +145,7 @@ struct PlanningView: View {
                     Panel(title: "GÜNLÜK RİSK SINIRLARI VE STOP SEVİYELERİ") {
                         TextEditor(text: $currentPlan.limits)
                             .font(.system(size: 13))
-                            .frame(minHeight: 110)
+                            .frame(height: 112)
                             .scrollContentBackground(.hidden)
                             .padding(8)
                             .background(Palette.field.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
@@ -161,7 +173,7 @@ struct PlanningView: View {
                 .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
 
                 Button("Yeni Şablon Oluştur") {
-                    showNewTemplate = true
+                    activeSheet = .newTemplate
                 }
                 .buttonStyle(EdgeButtonStyle(compact: true))
             }
@@ -193,7 +205,7 @@ struct PlanningView: View {
                                     .font(.headline)
                                 Spacer()
                                 Button {
-                                    editingTemplate = template
+                                    activeSheet = .editTemplate(template)
                                 } label: {
                                     Image(systemName: "pencil")
                                         .font(.caption)
@@ -399,7 +411,7 @@ struct PlanningView: View {
                     ws.templates.append(updated)
                 }
             }
-            editingTemplate = nil
+            activeSheet = nil
         } catch {
             store.report(error)
         }
@@ -414,7 +426,7 @@ struct PlanningView: View {
 
             HStack {
                 Spacer()
-                Button("İptal") { showNewTemplate = false }
+                Button("İptal") { activeSheet = nil }
                     .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
                     .keyboardShortcut(.cancelAction)
                 Button("Oluştur") { createNewTemplate() }
@@ -442,7 +454,7 @@ struct PlanningView: View {
         )
         saveTemplate(tmpl)
         newTemplateName = ""
-        showNewTemplate = false
+        activeSheet = nil
     }
 }
 

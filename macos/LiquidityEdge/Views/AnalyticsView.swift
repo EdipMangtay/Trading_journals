@@ -5,11 +5,12 @@ enum AnalyticsMode { case analytics, setups, statistics }
 struct AnalyticsView: View {
     @Environment(JournalStore.self) private var store
     var mode: AnalyticsMode
+    var openPlaybook: ((PlaybookDraft) -> Void)? = nil
     @State private var filter = TradeFilter()
     @State private var dimension = AnalysisDimension.setup
     @State private var metric = GroupMetric.averageR
     @State private var curveMode = CurveMode.r
-    @State private var newSetupDraft: PlaybookDraft?
+    @State private var fallbackPlaybook: PlaybookDraft?
     var body: some View {
         let unfiltered = filter.isEmpty
         let data = unfiltered ? store.scopedTrades : filter.apply(store.scopedTrades, calendar: store.preferences.calendar)
@@ -17,13 +18,16 @@ struct AnalyticsView: View {
         let groups = AnalyticsEngine.groups(data, by: dimension, calendar: store.preferences.calendar)
         let curve = unfiltered ? store.scopedCurve : AnalyticsEngine.curve(data)
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: 24) {
                 HStack(alignment: .top, spacing: 20) {
                     PageHeader(eyebrow: "Research desk", title: mode == .setups ? "Find the combinations that matter." : mode == .statistics ? "Your performance, precisely." : "Evidence over intuition.", subtitle: "Measure confirmations against your own execution history.")
                     if mode == .setups {
                         Spacer(minLength: 8)
-                        Button { newSetupDraft = PlaybookDraft() } label: { Label(L10n.text("New setup"), systemImage: "plus") }
-                            .buttonStyle(EdgeButtonStyle()).fixedSize()
+                        Button {
+                            let draft = PlaybookDraft()
+                            if let openPlaybook { openPlaybook(draft) } else { fallbackPlaybook = draft }
+                        } label: { Label(L10n.text("New setup"), systemImage: "plus") }
+                            .buttonStyle(EdgeButtonStyle())
                     }
                 }
                 FilterBar(allTrades: store.scopedTrades, calendar: store.preferences.calendar, filter: $filter)
@@ -82,7 +86,7 @@ struct AnalyticsView: View {
                 }
             }.pagePadding()
         }
-        .sheet(item: $newSetupDraft) { draft in PlaybookEditor(initial: draft).environment(store) }
+        .sheet(item: $fallbackPlaybook) { draft in PlaybookEditor(initial: draft).environment(store) }
     }
     private var curveTabs: some View {
         SegmentedTabs(options: CurveMode.allCases, selection: $curveMode, title: { $0.rawValue })

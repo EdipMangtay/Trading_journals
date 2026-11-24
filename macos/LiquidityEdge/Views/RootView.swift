@@ -28,6 +28,20 @@ enum JournalPage: String, CaseIterable, Identifiable {
 }
 struct EditorRoute: Identifiable { let id = UUID(); var record: TradeRecord? }
 struct DetailRoute: Identifiable { var id: UUID }
+enum RootSheet: Identifiable {
+    case tradeEditor(EditorRoute)
+    case tradeDetail(DetailRoute)
+    case commandPalette
+    case playbookEditor(PlaybookDraft)
+    var id: String {
+        switch self {
+        case .tradeEditor(let r): return "editor-\(r.id.uuidString)"
+        case .tradeDetail(let r): return "detail-\(r.id.uuidString)"
+        case .commandPalette: return "palette"
+        case .playbookEditor(let d): return "playbook-\(d.id.uuidString)"
+        }
+    }
+}
 struct RootView: View {
     @Environment(JournalStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -35,9 +49,7 @@ struct RootView: View {
     var openDemo: () -> Void
     @SceneStorage("journal.navigation.page") private var selectedPage = JournalPage.dashboard.rawValue
     @AppStorage("journal.sidebar.collapsed") private var collapsed = false
-    @State private var editor: EditorRoute?
-    @State private var detail: DetailRoute?
-    @State private var palette = false
+    @State private var activeSheet: RootSheet?
     @State private var globalQuery = ""
     @FocusState private var searchFocused: Bool
     @Namespace private var sidebarNamespace
@@ -45,7 +57,7 @@ struct RootView: View {
         get { JournalPage(rawValue: selectedPage) ?? .dashboard }
         nonmutating set { selectedPage = newValue.rawValue }
     }
-    private var animation: Animation? { store.preferences.animations && !reduceMotion ? .spring(response: 0.3, dampingFraction: 0.84) : nil }
+    private var animation: Animation? { store.preferences.animations && !reduceMotion ? .spring(response: 0.28, dampingFraction: 0.86) : nil }
     var body: some View {
         HStack(spacing: 0) {
             sidebar
@@ -55,8 +67,6 @@ struct RootView: View {
                 if store.isDemo { demoBanner }
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .id(page)
-                    .transition(store.preferences.animations && !reduceMotion ? .asymmetric(insertion: .opacity.combined(with: .offset(y: 6)), removal: .opacity) : .identity)
             }
             .background {
                 ZStack(alignment: .topLeading) {
@@ -72,13 +82,27 @@ struct RootView: View {
                 }
             }
         }.background(Palette.canvas).foregroundStyle(Palette.ink).tint(Palette.mint)
-        .animation(animation, value: page).animation(animation, value: collapsed)
-        .sheet(item: $editor) { route in TradeEditorView(record: route.record).environment(store) }
-        .sheet(item: $detail) { route in TradeDetailView(tradeID: route.id, edit: { record in detail = nil; DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { editor = EditorRoute(record: record) } }).environment(store) }
-        .sheet(isPresented: $palette) { commandPalette }
-        .onReceive(NotificationCenter.default.publisher(for: .newTrade)) { _ in if editor == nil && detail == nil && !palette { editor = EditorRoute() } }
-        .onReceive(NotificationCenter.default.publisher(for: .commandPalette)) { _ in if editor == nil && detail == nil { showSearch() } }
-        .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in if editor == nil && detail == nil && !palette { page = .settings } }
+        .animation(animation, value: collapsed)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .tradeEditor(let route):
+                TradeEditorView(record: route.record).environment(store)
+            case .tradeDetail(let route):
+                TradeDetailView(tradeID: route.id, edit: { record in
+                    activeSheet = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                        activeSheet = .tradeEditor(EditorRoute(record: record))
+                    }
+                }).environment(store)
+            case .commandPalette:
+                commandPalette
+            case .playbookEditor(let draft):
+                PlaybookEditor(initial: draft).environment(store)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .newTrade)) { _ in if activeSheet == nil { activeSheet = .tradeEditor(EditorRoute()) } }
+        .onReceive(NotificationCenter.default.publisher(for: .commandPalette)) { _ in if activeSheet == nil { showSearch() } }
+        .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in if activeSheet == nil { page = .settings } }
         .alert(L10n.text("Journal error"), isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) { Button(L10n.text("OK")) { store.errorMessage = nil } } message: { Text(L10n.text(store.errorMessage ?? "")) }
         .environment(\.timeZone, TimeZone(identifier: store.preferences.timezone) ?? .current)
         .environment(\.edgeAnimationsEnabled, store.preferences.animations)
@@ -220,7 +244,7 @@ struct RootView: View {
                         .padding(.horizontal, 4).padding(.vertical, 2).background(Palette.field, in: RoundedRectangle(cornerRadius: 3))
                 }
             }.buttonStyle(EdgeButtonStyle(prominent: false)).help(L10n.text("Search & Commands"))
-            Button { editor = EditorRoute() } label: { Label(L10n.text("New trade"), systemImage: "plus") }.buttonStyle(EdgeButtonStyle()).help("Yeni işlem · ⌘N")
+            Button { activeSheet = .tradeEditor(EditorRoute()) } label: { Label(L10n.text("New trade"), systemImage: "plus") }.buttonStyle(EdgeButtonStyle()).help("Yeni işlem · ⌘N")
         }.padding(.horizontal, 28).frame(height: 68).background(Palette.panel.opacity(0.3))
             .overlay(alignment: .bottom) { Rectangle().fill(Palette.line.opacity(0.65)).frame(height: 1) }
     }
@@ -265,21 +289,22 @@ struct RootView: View {
         case .quant: QuantView()
         case .planning: PlanningView()
         case .dataImport: CSVImportView()
-        case .dashboard: DashboardView(openTrade: openTrade, newTrade: { editor = EditorRoute() }, openDemo: openDemo)
-        case .trades, .newTrade: TradesView(initialQuery: globalQuery, openTrade: openTrade, newTrade: { editor = EditorRoute() })
+        case .dashboard: DashboardView(openTrade: openTrade, newTrade: { activeSheet = .tradeEditor(EditorRoute()) }, openDemo: openDemo)
+        case .trades, .newTrade: TradesView(initialQuery: globalQuery, openTrade: openTrade, newTrade: { activeSheet = .tradeEditor(EditorRoute()) })
         case .calendar: CalendarView(openTrade: openTrade)
-        case .analytics: AnalyticsView(mode: .analytics)
-        case .setups: AnalyticsView(mode: .setups)
-        case .statistics: AnalyticsView(mode: .statistics)
+        case .analytics: AnalyticsView(mode: .analytics, openPlaybook: openPlaybook)
+        case .setups: AnalyticsView(mode: .setups, openPlaybook: openPlaybook)
+        case .statistics: AnalyticsView(mode: .statistics, openPlaybook: openPlaybook)
         case .mistakes: MistakesView()
-        case .playbook: PlaybookView()
+        case .playbook: PlaybookView(openPlaybook: openPlaybook)
         case .screenshots: ScreenshotLibraryView(openTrade: openTrade)
         case .review: ReviewsView()
         case .settings: SettingsView(openDemo: openDemo)
         }
     }
-    private func openTrade(_ record: TradeRecord) { detail = DetailRoute(id: record.id) }
-    private func showSearch() { globalQuery = ""; palette = true }
+    private func openTrade(_ record: TradeRecord) { activeSheet = .tradeDetail(DetailRoute(id: record.id)) }
+    private func openPlaybook(_ draft: PlaybookDraft) { activeSheet = .playbookEditor(draft) }
+    private func showSearch() { globalQuery = ""; activeSheet = .commandPalette }
     private var matchingPages: [JournalPage] {
         JournalPage.allCases.filter { globalQuery.isEmpty || $0.rawValue.localizedCaseInsensitiveContains(globalQuery) || L10n.text($0.rawValue).localizedCaseInsensitiveContains(globalQuery) }
     }
@@ -288,8 +313,14 @@ struct RootView: View {
         return store.scopedTrades.filter { prepared.matches($0) }
     }
     private func submitSearch() {
-        if let item = matchingPages.first { palette = false; if item == .newTrade { DispatchQueue.main.async { editor = EditorRoute() } } else { page = item } }
-        else if let trade = matchingTrades.first { palette = false; DispatchQueue.main.async { openTrade(trade) } }
+        if let item = matchingPages.first {
+            activeSheet = nil
+            if item == .newTrade { DispatchQueue.main.async { activeSheet = .tradeEditor(EditorRoute()) } }
+            else { page = item }
+        } else if let trade = matchingTrades.first {
+            activeSheet = nil
+            DispatchQueue.main.async { openTrade(trade) }
+        }
     }
     private var commandPalette: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -297,7 +328,7 @@ struct RootView: View {
                 HStack {
                     Text("KOMUT MERKEZİ").font(EdgeType.eyebrow).tracking(1.4).foregroundStyle(Palette.muted)
                     Spacer()
-                    Button { palette = false } label: { Text("esc").font(.system(size: 10, design: .monospaced)) }
+                    Button { activeSheet = nil } label: { Text("esc").font(.system(size: 10, design: .monospaced)) }
                         .buttonStyle(EdgeButtonStyle(prominent: false, compact: true)).keyboardShortcut(.cancelAction).help(L10n.text("Close")).accessibilityLabel(L10n.text("Close"))
                 }
                 HStack(spacing: 12) {
@@ -313,8 +344,8 @@ struct RootView: View {
                         Text("SAYFALAR VE KOMUTLAR").font(EdgeType.eyebrow).tracking(1.3).foregroundStyle(Palette.muted).padding(.horizontal, 12).padding(.bottom, 8)
                         ForEach(matchingPages) { item in
                             Button {
-                                palette = false
-                                if item == .newTrade { DispatchQueue.main.async { editor = EditorRoute() } } else { page = item }
+                                activeSheet = nil
+                                if item == .newTrade { DispatchQueue.main.async { activeSheet = .tradeEditor(EditorRoute()) } } else { page = item }
                             } label: {
                                 HStack(spacing: 12) { Image(systemName: item.icon).frame(width: 19).foregroundStyle(Palette.mint); Text(L10n.text(item.rawValue)); Spacer(); Image(systemName: "return").font(.system(size: 10)).foregroundStyle(Palette.muted) }.font(.system(size: 13)).padding(12)
                             }.buttonStyle(NavigationButtonStyle())
@@ -323,7 +354,7 @@ struct RootView: View {
                     if !matchingTrades.isEmpty {
                         Text(globalQuery.isEmpty ? "SON İŞLEMLER" : "EŞLEŞEN İŞLEMLER").font(EdgeType.eyebrow).tracking(1.3).foregroundStyle(Palette.muted).padding(.horizontal, 12).padding(.top, 15).padding(.bottom, 8)
                         ForEach(Array(matchingTrades.prefix(globalQuery.isEmpty ? 6 : 30))) { trade in
-                            Button { palette = false; DispatchQueue.main.async { openTrade(trade) } } label: {
+                            Button { activeSheet = nil; DispatchQueue.main.async { openTrade(trade) } } label: {
                                 HStack(spacing: 12) {
                                     Image(systemName: trade.direction == "Long" ? "arrow.up.right" : "arrow.down.right").foregroundStyle(trade.direction == "Long" ? Palette.mint : Palette.red).frame(width: 19)
                                     VStack(alignment: .leading, spacing: 4) { Text(verbatim: trade.instrument).fontWeight(.semibold); Text(trade.setupID == nil ? L10n.text(trade.setupName) : trade.setupName).font(.system(size: 10)).foregroundStyle(Palette.muted) }
@@ -348,7 +379,7 @@ struct RootView: View {
             HStack {
                 Text("↵ Aç    esc Kapat").font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.muted)
                 Spacer()
-                Button(L10n.text("Show all matching trades")) { page = .trades; palette = false }.buttonStyle(EdgeButtonStyle(prominent: false))
+                Button(L10n.text("Show all matching trades")) { page = .trades; activeSheet = nil }.buttonStyle(EdgeButtonStyle(prominent: false))
             }.padding(16).background(Palette.field.opacity(0.55))
         }.frame(width: 680, height: 580).background(Palette.panel).foregroundStyle(Palette.ink).onAppear { searchFocused = true }
     }

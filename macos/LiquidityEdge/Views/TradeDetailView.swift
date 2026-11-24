@@ -7,8 +7,18 @@ struct TradeDetailView: View {
     var tradeID: UUID
     var edit: (TradeRecord) -> Void
     @State private var deleting = false
-    @State private var selectedImage: ScreenshotDraft?
-    @State private var showSupplementEditor = false
+    @State private var activeSheet: DetailSheet?
+
+    private enum DetailSheet: Identifiable {
+        case image(ScreenshotDraft)
+        case supplements
+        var id: String {
+            switch self {
+            case .image(let shot): return "img-\(shot.id.uuidString)"
+            case .supplements: return "supplements"
+            }
+        }
+    }
     private var trade: TradeRecord? { store.trades.first { $0.id == tradeID } }
     private var supplement: TradeSupplement? { store.workspace.supplements[tradeID] }
     var body: some View {
@@ -22,7 +32,7 @@ struct TradeDetailView: View {
                     Button(role: .destructive) { deleting = true } label: { Label(L10n.text("Delete"), systemImage: "trash") }
                         .buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.red).padding(.horizontal, 12).padding(.vertical, 10)
                         .background(Palette.red.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
-                    Button { showSupplementEditor = true } label: { Label("Fills & Checklist", systemImage: "list.bullet.clipboard") }.buttonStyle(EdgeButtonStyle(prominent: false))
+                    Button { activeSheet = .supplements } label: { Label("Fills & Checklist", systemImage: "list.bullet.clipboard") }.buttonStyle(EdgeButtonStyle(prominent: false))
                     Button { edit(t) } label: { Label(L10n.text("Edit trade"), systemImage: "pencil") }.buttonStyle(EdgeButtonStyle(prominent: false))
                     Button(L10n.text("Done")) { dismiss() }.buttonStyle(EdgeButtonStyle()).keyboardShortcut(.cancelAction)
                 }.padding(.horizontal, 24).padding(.vertical, 18).background(Palette.panel)
@@ -123,7 +133,7 @@ struct TradeDetailView: View {
                             if shots.isEmpty { Text(L10n.text("No screenshots attached. Use Edit trade to add images.")).font(.caption).foregroundStyle(Palette.muted) }
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 250))], spacing: 14) {
                                 ForEach(shots, id: \.id) { shot in
-                                    Button { do { selectedImage = try ScreenshotDraft(shot) } catch { store.report(error) } } label: {
+                                    Button { do { activeSheet = .image(try ScreenshotDraft(shot)) } catch { store.report(error) } } label: {
                                         VStack(alignment: .leading, spacing: 12) {
                                             ScreenshotThumbnail(data: shot.thumbnailData, cacheKey: "thumb-\(shot.id.uuidString)").frame(height: 170).clipShape(RoundedRectangle(cornerRadius: 11))
                                             HStack { Badge(text: shot.category); Spacer(); Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 11)).foregroundStyle(Palette.muted) }
@@ -234,11 +244,20 @@ struct TradeDetailView: View {
             }
         }.frame(width: sheetSize.width, height: sheetSize.height).background(Palette.canvas).foregroundStyle(Palette.ink).tint(Palette.mint)
         .confirmationDialog(L10n.text("Delete this trade and its screenshots?"), isPresented: $deleting) { Button(L10n.text("Delete trade"), role: .destructive) { do { try store.deleteTrade(tradeID); dismiss() } catch { store.report(error) } } } message: { Text(L10n.text("This action cannot be undone. A saved backup can restore the trade.")) }
-        .sheet(item: $selectedImage) { shot in ScreenshotViewer(initial: shot) { changed in
-            guard let t = trade else { return }; do { var all = try (store.model(t.id)?.screenshots ?? []).map(ScreenshotDraft.init); if let index = all.firstIndex(where: { $0.id == changed.id }) { all[index] = changed }; try store.save(t, screenshots: all) } catch { store.report(error) }
-        } }
-        .sheet(isPresented: $showSupplementEditor) {
-            TradeSupplementEditor(tradeID: tradeID).environment(store)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .image(let shot):
+                ScreenshotViewer(initial: shot) { changed in
+                    guard let t = trade else { return }
+                    do {
+                        var all = try (store.model(t.id)?.screenshots ?? []).map(ScreenshotDraft.init)
+                        if let index = all.firstIndex(where: { $0.id == changed.id }) { all[index] = changed }
+                        try store.save(t, screenshots: all)
+                    } catch { store.report(error) }
+                }
+            case .supplements:
+                TradeSupplementEditor(tradeID: tradeID).environment(store)
+            }
         }
     }
     private var sheetSize: CGSize {

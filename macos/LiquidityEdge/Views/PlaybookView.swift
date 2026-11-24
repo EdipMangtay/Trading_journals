@@ -9,21 +9,38 @@ struct PlaybookDraft: Identifiable {
 }
 struct PlaybookView: View {
     @Environment(JournalStore.self) private var store
-    @State private var editor: PlaybookDraft?
+    var openPlaybook: ((PlaybookDraft) -> Void)? = nil
+    @State private var localSheet: PlaybookSheet?
     @State private var deleting: Setup?
-    @State private var viewingShot: ScreenshotDraft?
+
+    private enum PlaybookSheet: Identifiable {
+        case editor(PlaybookDraft)
+        case shot(ScreenshotDraft)
+        var id: String {
+            switch self {
+            case .editor(let d): return "edit-\(d.id.uuidString)"
+            case .shot(let s): return "shot-\(s.id.uuidString)"
+            }
+        }
+    }
+
+    private func presentEditor(_ draft: PlaybookDraft) {
+        if let openPlaybook { openPlaybook(draft) }
+        else { localSheet = .editor(draft) }
+    }
+
     var body: some View {
         let tradesBySetup = Dictionary(grouping: store.scopedTrades) { $0.setupID }
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: 24) {
                 HStack(alignment: .top, spacing: 24) {
                     PageHeader(eyebrow: "Your models", title: "Define it. Execute it. Refine it.", subtitle: "A living playbook, linked to the performance of your actual trades.")
                     Spacer(minLength: 0)
-                    Button { editor = PlaybookDraft() } label: { Label(L10n.text("New setup"), systemImage: "plus") }
-                        .buttonStyle(EdgeButtonStyle()).fixedSize()
+                    Button { presentEditor(PlaybookDraft()) } label: { Label(L10n.text("New setup"), systemImage: "plus") }
+                        .buttonStyle(EdgeButtonStyle())
                 }
                 if store.setups.isEmpty {
-                    Panel { EmptyJournal(title: "Codify your first setup.", subtitle: "Write the conditions, invalidation and risk rules that make an execution valid.", actionTitle: "Create setup", action: { editor = PlaybookDraft() }) }
+                    Panel { EmptyJournal(title: "Codify your first setup.", subtitle: "Write the conditions, invalidation and risk rules that make an execution valid.", actionTitle: "Create setup", action: { presentEditor(PlaybookDraft()) }) }
                 }
                 ForEach(Array(store.setups.enumerated()), id: \.element.id) { index, setup in
                     let p = AnalyticsEngine.performance(tradesBySetup[setup.id] ?? [])
@@ -41,7 +58,7 @@ struct PlaybookView: View {
                             Spacer(minLength: 0)
                             HStack(spacing: 8) {
                                 Button {
-                                    do { editor = try PlaybookDraft(setup) } catch { store.report(error) }
+                                    do { presentEditor(try PlaybookDraft(setup)) } catch { store.report(error) }
                                 } label: { Label(L10n.text("Edit"), systemImage: "square.and.pencil") }
                                     .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
                                 Button { deleting = setup } label: { Image(systemName: "trash").frame(width: 14, height: 16) }
@@ -69,7 +86,7 @@ struct PlaybookView: View {
                                             Text(L10n.text("IDEAL EXAMPLES")).font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(1).foregroundStyle(Palette.muted)
                                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
                                                 ForEach(idealImages) { shot in
-                                                    Button { viewingShot = shot } label: {
+                                                    Button { localSheet = .shot(shot) } label: {
                                                         VStack(alignment: .leading, spacing: 6) {
                                                             ScreenshotThumbnail(data: shot.thumbnailData, cacheKey: "pb-\(shot.id.uuidString)").frame(height: 120).clipShape(RoundedRectangle(cornerRadius: 8))
                                                             Text(verbatim: shot.name).font(.system(size: 10)).foregroundStyle(Palette.muted).lineLimit(1)
@@ -89,8 +106,12 @@ struct PlaybookView: View {
                 }
             }.pagePadding()
         }
-        .sheet(item: $editor) { draft in PlaybookEditor(initial: draft).environment(store) }
-        .sheet(item: $viewingShot) { shot in ScreenshotViewer(initial: shot) { _ in } }
+        .sheet(item: $localSheet) { sheet in
+            switch sheet {
+            case .editor(let draft): PlaybookEditor(initial: draft).environment(store)
+            case .shot(let shot): ScreenshotViewer(initial: shot) { _ in }
+            }
+        }
         .confirmationDialog(L10n.text("Delete this setup?"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button(L10n.text("Delete setup"), role: .destructive) { if let setup = deleting { do { try store.deleteSetup(setup) } catch { store.report(error) } }; deleting = nil }
         } message: { Text(L10n.text("Linked trades remain in your journal and become Unassigned. The playbook and its ideal images are deleted.")) }
@@ -112,11 +133,20 @@ struct PlaybookEditor: View {
     @Environment(JournalStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State var draft: PlaybookDraft
+    @State private var activeTab: PlaybookTab = .identity
     @State private var error: String?
+
+    private enum PlaybookTab: String, CaseIterable, Identifiable {
+        case identity = "01 · Kimlik & Giriş"
+        case risk = "02 · Risk & Hedefler"
+        case examples = "03 · İdeal Örnekler"
+        var id: String { rawValue }
+    }
+
     init(initial: PlaybookDraft) { _draft = State(initialValue: initial) }
     private var sheetSize: CGSize {
         let screen = (NSApp.keyWindow?.screen ?? NSScreen.main)?.visibleFrame.size ?? CGSize(width: 1200, height: 900)
-        return CGSize(width: min(860, max(680, screen.width - 100)), height: min(830, max(480, screen.height - 90)))
+        return CGSize(width: min(820, max(640, screen.width - 100)), height: min(740, max(480, screen.height - 90)))
     }
     var body: some View {
         VStack(spacing: 0) {
@@ -127,14 +157,35 @@ struct PlaybookEditor: View {
                 }.accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(L10n.text("Setup playbook")).font(.system(size: 20, weight: .semibold)).tracking(-0.4)
-                    Text("Koşullar, uygulama kuralları ve ideal örnekler").font(.system(size: 11)).foregroundStyle(Palette.muted)
+                    Text("Sadece adını yazıp anında kaydedebilir, kuralları ve görselleri istediğin zaman doldurabilirsin.").font(.system(size: 11)).foregroundStyle(Palette.muted)
                 }
                 Spacer(minLength: 8)
                 Button(L10n.text("Cancel")) { dismiss() }.buttonStyle(EdgeButtonStyle(prominent: false, compact: true)).keyboardShortcut(.cancelAction)
                 Button { save() } label: { Label(L10n.text("Save setup"), systemImage: "checkmark") }
                     .buttonStyle(EdgeButtonStyle(compact: true)).keyboardShortcut("s", modifiers: .command)
-            }.padding(.horizontal, 26).padding(.vertical, 20).background(Palette.panel)
-            Rectangle().fill(Palette.muted.opacity(0.12)).frame(height: 1)
+            }.padding(.horizontal, 24).padding(.vertical, 16).background(Palette.panel)
+
+            HStack(spacing: 6) {
+                ForEach(PlaybookTab.allCases) { tab in
+                    let isSelected = activeTab == tab
+                    Button {
+                        activeTab = tab
+                    } label: {
+                        Text(tab.rawValue)
+                            .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+                            .foregroundStyle(isSelected ? Palette.ink : Palette.muted)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .frame(maxWidth: .infinity)
+                            .background(isSelected ? Palette.raised : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(isSelected ? Palette.mint.opacity(0.35) : Color.clear, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 20).padding(.vertical, 10)
+            .background(Palette.panel.opacity(0.6))
+            Rectangle().fill(Palette.line.opacity(0.7)).frame(height: 1)
+
             if let error {
                 HStack(spacing: 10) {
                     Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Palette.amber)
@@ -142,39 +193,47 @@ struct PlaybookEditor: View {
                     Spacer()
                     Button("Kapat") { self.error = nil }.buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
                 }
-                .padding(.horizontal, 26).padding(.vertical, 12)
+                .padding(.horizontal, 24).padding(.vertical, 10)
                 .background(Palette.amber.opacity(0.1))
                 .accessibilityElement(children: .combine)
             }
+
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    Panel(title: "STRATEJİ KİMLİĞİ") {
-                        VStack(alignment: .leading, spacing: 9) {
-                            HStack(spacing: 4) {
-                                Text(L10n.text("Setup name")).font(.system(size: 12, weight: .medium))
-                                Text("*").font(.system(size: 12, weight: .bold)).foregroundStyle(Palette.mint)
+                VStack(alignment: .leading, spacing: 18) {
+                    switch activeTab {
+                    case .identity:
+                        Panel(title: "STRATEJİ KİMLİĞİ") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 4) {
+                                    Text(L10n.text("Setup name")).font(.system(size: 12, weight: .medium))
+                                    Text("*").font(.system(size: 12, weight: .bold)).foregroundStyle(Palette.mint)
+                                }
+                                TextField("Örn: NY AM QT + SSMT CISD", text: $draft.name)
+                                    .textFieldStyle(EdgeTextFieldStyle())
+                                    .onSubmit { save() }
+                                    .accessibilityLabel(L10n.text("Setup name"))
                             }
-                            TextField("Örn: NY AM QT + SSMT CISD", text: $draft.name)
-                                .textFieldStyle(EdgeTextFieldStyle())
-                                .onSubmit { save() }
-                                .accessibilityLabel(L10n.text("Setup name"))
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(L10n.text("Brief description")).font(.system(size: 12, weight: .medium))
+                                TextField("Kısa strateji özeti (isteğe bağlı)", text: $draft.summary)
+                                    .textFieldStyle(EdgeTextFieldStyle())
+                                    .accessibilityLabel(L10n.text("Brief description"))
+                            }
                         }
-                        VStack(alignment: .leading, spacing: 9) {
-                            Text(L10n.text("Brief description")).font(.system(size: 12, weight: .medium))
-                            TextField("Kısa strateji özeti (isteğe bağlı)", text: $draft.summary)
-                                .textFieldStyle(EdgeTextFieldStyle())
-                                .accessibilityLabel(L10n.text("Brief description"))
+                        Panel(title: "KOŞULLAR VE GİRİŞ KURALLARI (İSTEĞE BAĞLI)") {
+                            NoteField(title: "Conditions", text: $draft.conditions)
+                            NoteField(title: "Entry rules", text: $draft.entry)
                         }
+                    case .risk:
+                        Panel(title: "GEÇERSİZLİK, HEDEF VE RİSK (İSTEĞE BAĞLI)") {
+                            NoteField(title: "Invalidation rules", text: $draft.invalidation)
+                            NoteField(title: "Target rules", text: $draft.target)
+                            NoteField(title: "Risk rules", text: $draft.risk)
+                        }
+                    case .examples:
+                        Panel(title: "IDEAL EXAMPLES") { ScreenshotAttachmentEditor(shots: $draft.images) }
                     }
-                    Panel(title: "Conditions & execution rules") {
-                        NoteField(title: "Conditions", text: $draft.conditions)
-                        NoteField(title: "Entry rules", text: $draft.entry)
-                        NoteField(title: "Invalidation rules", text: $draft.invalidation)
-                        NoteField(title: "Target rules", text: $draft.target)
-                        NoteField(title: "Risk rules", text: $draft.risk)
-                    }
-                    Panel(title: "IDEAL EXAMPLES") { ScreenshotAttachmentEditor(shots: $draft.images) }
-                }.padding(26)
+                }.padding(24)
             }
         }.frame(width: sheetSize.width, height: sheetSize.height).background(Palette.canvas).foregroundStyle(Palette.ink).tint(Palette.mint)
             .onChange(of: draft.name) { _, _ in if error != nil { error = nil } }

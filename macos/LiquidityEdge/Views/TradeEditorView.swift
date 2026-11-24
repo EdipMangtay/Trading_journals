@@ -1233,7 +1233,7 @@ struct NoteField: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(L10n.text(title)).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.muted)
             TextEditor(text: $text).font(.system(size: 13)).lineSpacing(4).scrollContentBackground(.hidden)
-                .padding(11).frame(minHeight: 100).focused($focused)
+                .padding(11).frame(height: 112).focused($focused)
                 .background(Palette.canvas.opacity(0.45), in: RoundedRectangle(cornerRadius: 11))
                 .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(focused ? Palette.mint.opacity(0.55) : Palette.muted.opacity(0.18)))
                 .accessibilityLabel(L10n.text(title))

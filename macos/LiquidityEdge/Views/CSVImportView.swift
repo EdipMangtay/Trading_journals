@@ -132,7 +132,7 @@ struct CSVImportView: View {
 
                     TextEditor(text: $rawCSVText)
                         .font(.system(size: 11, design: .monospaced))
-                        .frame(minHeight: 180)
+                        .frame(height: 180)
                         .scrollContentBackground(.hidden)
                         .padding(8)
                         .background(Palette.field.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
