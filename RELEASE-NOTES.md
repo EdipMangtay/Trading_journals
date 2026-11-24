@@ -12,13 +12,10 @@ Aşağıdaki resmi kurulum dosyalarından birini indirin (kaynak kodu ZIP'ini in
 
 ## v6.0.0 Yenilikleri
 
-- **Yenilenen Performans Masası ve Grafik Animasyonları:** Kayan cam crosshair HUD tooltip'leri, çift katmanlı ışıltılı sermaye eğrileri, yay animasyonlu kayan sekmeler, dağılım grafiği projeksiyon kılavuzları, etkileşimli zamanlama ısı haritası ve özelleştirilebilir widget düzeni.
+- **Pratik 5 Sekmeli QT & ICT İşlem Giriş Ekranı:** İngilizce trading terminolojisi (`AMDX/XAMD`, `True Open TDO/TSO/T90O`, `Pro-Trend / Counter-Trend`, `ERL ↔ IRL`, `CISD/MSS/IFVG/OB/SSMT/MMXM/PO3/CRT`) + doğal Türkçe yönlendirmeler, canlı üst özet şeridi, tek tıkla `Hızlı Risk %` / `Hızlı R` ve QT hazır şablonları.
+- **Yüksek Performans Motoru (~2,5x Hızlanma):** Tek geçişli `AnalyticsEngine`, $O(N)$ dairesel tampon eğrileri, `PreparedQuery` hızlı arama, `O(1)` önbellekli hesap filtreleme, `NSCache` tabanlı `ImageCache` (120fps görsel/çizim) ve arka planda çalışan asenkron Monte Carlo simülasyonu.
+- **Üst Düzey UI & Grafik Animasyonları:** Dairesel `ExecutionScoreRing` süreç göstergesi, soldan sağa grafik çizim animasyonu, çift katmanlı ışıltılı `Halo + Core` sermaye eğrileri, taşma korumalı cam crosshair HUD, Trackpad haptik geri bildirimi, kayan kenar çubuğu göstergesi ve ayrıştırılmış çok serili Monte Carlo grafiği.
 - **Çoklu Hesap & Prop Firm Risk Merkezi:** Personal, Evaluation ve Funded hesap desteği; statik ve gün sonu (EOD) trailing drawdown, günlük kayıp limiti, minimum işlem günü ve tutarlılık yüzdesi takibi.
-- **Strateji Araştırma Laboratuvarı:** QT, MMXM, PO3, SSMT, TSMO ve CRT kurulumları için Setup × Seans, Setup × Enstrüman çapraz matrisleri, A/B teyit karşılaştırmaları ve kayıtlı filtre ön ayarları.
-- **Kantitatif Analiz & Monte Carlo:** Deterministik bootstrap ve sıra karıştırma (shuffle) simülasyonları, 5./50./95. yüzdelik dilim bantları, su altı (drawdown) toparlanma süresi ve hareketli beklenti analizi.
-- **İşlem Planı & Yapılandırılmış Kontrol Listeleri:** Günlük piyasa senaryoları, likidite hedefleri ve QT/MMXM/CRT şablonlu ön/son kontrol listeleri.
-- **Gelişmiş İşlem İnceleyici & Gerçekleşme Defteri:** Kademeli giriş/çıkış (Fills), kayma (slippage) maliyeti, kontrat puan değeri ve kontrol listesi yanıtları.
-- **CSV Aktarım Sihirbazı:** Sütun eşleme, veri doğrulama, yineleme tespiti ve seçilen hesaba güvenli aktarım.
-- **Veri Güvenliği (SwiftData V1 → V2):** Mevcut tüm eski kayıtlar, görseller, çizimler ve yedekler kayıpsız korunur.
+- **Strateji Araştırma Laboratuvarı, Günlük Plan & CSV Aktarım Sihirbazı:** Setup × Seans / Enstrüman matrisleri, kayıtlı filtreler, QT/MMXM/CRT kontrol listeleri, kademeli giriş/çıkış (`Fills`) defteri ve geriye dönük tam uyumlu SwiftData V1 → V2 geçişi.
 
 **İlk açılış notu:** Açık kaynaklı ad-hoc imzalı derleme olduğu için macOS ilk açılışta onay isteyebilir. **Sistem Ayarları → Gizlilik ve Güvenlik → Yine de Aç** adımını kullanabilir veya `xattr -cr "/Applications/Liquidity Edge.app"` çalıştırabilirsiniz. Detaylar: [INSTALLATION.md](https://github.com/EdipMangtay/Trading_journals/blob/main/INSTALLATION.md).

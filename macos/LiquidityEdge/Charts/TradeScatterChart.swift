@@ -215,7 +215,11 @@ struct TradeScatterChart: View {
                 PointMark(x: .value(horizontal.rawValue, selected.x), y: .value(vertical.rawValue, selected.y))
                     .symbol(selected.trade.compliant ? .circle : .diamond).symbolSize(72)
                     .foregroundStyle(processColor(selected.trade))
-                    .annotation(position: .top, spacing: 10) {
+                    .annotation(
+                        position: .top,
+                        spacing: 10,
+                        overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))
+                    ) {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 5) {
                                 Text(selected.trade.instrument + " " + selected.trade.direction)
@@ -289,6 +293,9 @@ struct TradeScatterChart: View {
             let distance = hypot(local.x - x, local.y - y)
             if distance <= 24 && (nearest == nil || distance < nearest!.distance) { nearest = (point.id, distance) }
         }
-        selectedID = nearest?.id
+        if nearest?.id != selectedID {
+            selectedID = nearest?.id
+            if nearest != nil && store.preferences.animations { EdgeHaptics.tick() }
+        }
     }
 }

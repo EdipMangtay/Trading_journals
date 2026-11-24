@@ -10,22 +10,23 @@ struct AnalyticsView: View {
     @State private var metric = GroupMetric.averageR
     @State private var curveMode = CurveMode.r
     var body: some View {
-        let data = filter.apply(store.trades, calendar: store.preferences.calendar), p = AnalyticsEngine.performance(data)
+        let data = filter.apply(store.scopedTrades, calendar: store.preferences.calendar), p = AnalyticsEngine.performance(data)
         let groups = AnalyticsEngine.groups(data, by: dimension, calendar: store.preferences.calendar)
+        let curve = AnalyticsEngine.curve(data)
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 PageHeader(eyebrow: "Research desk", title: mode == .setups ? "Find the combinations that matter." : mode == .statistics ? "Your performance, precisely." : "Evidence over intuition.", subtitle: "Measure confirmations against your own execution history.")
-                FilterBar(allTrades: store.trades, calendar: store.preferences.calendar, filter: $filter)
+                FilterBar(allTrades: store.scopedTrades, calendar: store.preferences.calendar, filter: $filter)
                 if data.isEmpty { EmptyJournal(title: "No observations yet.", subtitle: "Add trades or adjust filters to begin your analysis.") }
                 else {
-                    if mode == .statistics { MetricsGrid(performance: p, currency: store.preferences.currency) }
+                    if mode == .statistics { MetricsGrid(performance: p, currency: store.accountCurrency) }
                     if mode != .statistics {
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 14) {
                             MetricCard(title: "Sample", value: "n = \(p.count)", footnote: "Filtreye uyan işlem sayısı")
                             MetricCard(title: "Win rate", value: Format.percent(p.winRate), footnote: "\(p.wins) kazançlı · \(p.losses) zararlı işlem")
                             MetricCard(title: "Expectancy", value: Format.r(p.averageR), footnote: "R kaydedilen işlemlerin ortalaması", color: Palette.outcome(p.averageR ?? 0))
                             MetricCard(title: "Compliance", value: Format.percent(p.compliance), footnote: "İşlem planına tam uyum")
-                        }
+                        }.edgeEntrance(delay: 0.03)
                     }
                     if p.count < 30 {
                         Label("Bu görünüm \(p.count) işleme dayanıyor. Daha fazla kayıt, karşılaştırmaları güçlendirir.", systemImage: "info.circle")
@@ -37,8 +38,8 @@ struct AnalyticsView: View {
                             HStack { Text("Zaman içinde gelişim").font(.caption).foregroundStyle(Palette.muted); Spacer(); curveTabs }
                             curveTabs
                         }
-                        EquityChart(points: curveMode == .rolling ? Array(AnalyticsEngine.curve(data).dropFirst()) : AnalyticsEngine.curve(data), mode: curveMode, accountSize: store.preferences.accountSize, height: 240)
-                    }
+                        EquityChart(points: curveMode == .rolling ? Array(curve.dropFirst()) : curve, mode: curveMode, accountSize: store.selectedAccount.startingBalance, height: 260)
+                    }.edgeEntrance(delay: 0.06)
                     TradeScatterChart(trades: data)
                     Panel(title: "PERFORMANCE BREAKDOWN", subtitle: "Gruplar ve ölçülebilir sonuçlar") {
                         ViewThatFits(in: .horizontal) {

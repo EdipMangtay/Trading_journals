@@ -9,7 +9,7 @@ struct CalendarView: View {
     var body: some View {
         let calendar = store.preferences.calendar
         let interval = calendar.dateInterval(of: .month, for: month)!
-        let monthTrades = store.trades.filter { $0.date >= interval.start && $0.date < interval.end }
+        let monthTrades = store.scopedTrades.filter { $0.date >= interval.start && $0.date < interval.end }
         let p = AnalyticsEngine.performance(monthTrades)
         let buckets = Dictionary(grouping: monthTrades) { calendar.startOfDay(for: $0.date) }
         let count = calendar.range(of: .day, in: .month, for: month)!.count
@@ -25,11 +25,11 @@ struct CalendarView: View {
                         .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Palette.muted.opacity(0.12)))
                 }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 14) {
-                    MetricCard(title: "Monthly PnL", value: Format.money(p.netPnL, currency: store.preferences.currency), color: Palette.outcome(p.netPnL))
+                    MetricCard(title: "Monthly PnL", value: Format.money(p.netPnL, currency: store.accountCurrency), color: Palette.outcome(p.netPnL))
                     MetricCard(title: "Monthly R", value: p.rCount == 0 ? "—" : Format.r(p.totalR), color: Palette.outcome(p.totalR))
                     MetricCard(title: "Win rate", value: p.count == 0 ? "—" : Format.percent(p.winRate))
                     MetricCard(title: "Trades", value: p.count.description)
-                }
+                }.edgeEntrance(delay: 0.03)
                 Panel {
                     HStack(spacing: 12) {
                         ZStack {
@@ -58,8 +58,11 @@ struct CalendarView: View {
                                 let date = calendar.date(byAdding: .day, value: index - offset, to: interval.start)!
                                 let dayTrades = buckets[date] ?? [], stats = AnalyticsEngine.performance(dayTrades)
                                 let number = showR ? stats.totalR : stats.netPnL
-                                Button { selectedDate = date } label: {
-                                    CalendarDayContent(day: index - offset + 1, today: calendar.isDateInToday(date), hasTrades: !dayTrades.isEmpty, count: stats.count, value: showR ? (stats.rCount == 0 ? "—" : Format.r(number)) : Format.money(number, currency: store.preferences.currency), color: Palette.outcome(number))
+                                Button {
+                                    selectedDate = date
+                                    if store.preferences.animations { EdgeHaptics.tick() }
+                                } label: {
+                                    CalendarDayContent(day: index - offset + 1, today: calendar.isDateInToday(date), hasTrades: !dayTrades.isEmpty, count: stats.count, value: showR ? (stats.rCount == 0 ? "—" : Format.r(number)) : Format.money(number, currency: store.accountCurrency), color: Palette.outcome(number))
                                 }
                                 .buttonStyle(CalendarDayButtonStyle(selected: selectedDate == date, color: dayTrades.isEmpty ? Palette.muted : Palette.outcome(number), hasTrades: !dayTrades.isEmpty))
                                 .accessibilityLabel("\(Format.date(date, calendar: calendar)), \(dayTrades.count) işlem, \(showR ? (stats.rCount == 0 ? "R kaydedilmedi" : Format.r(stats.totalR)) : Format.money(stats.netPnL, currency: store.preferences.currency))")
@@ -91,6 +94,9 @@ struct CalendarView: View {
                 }
             }.pagePadding()
         }
+        .animation(store.preferences.animations ? .spring(response: 0.32, dampingFraction: 0.84) : nil, value: month)
+        .animation(store.preferences.animations ? .spring(response: 0.28, dampingFraction: 0.84) : nil, value: selectedDate)
+        .animation(store.preferences.animations ? .spring(response: 0.28, dampingFraction: 0.84) : nil, value: showR)
     }
     private func shift(_ value: Int) { month = store.preferences.calendar.date(byAdding: .month, value: value, to: month) ?? month; selectedDate = nil }
 }
@@ -132,13 +138,25 @@ private struct CalendarDayButtonStyle: ButtonStyle {
         let selected: Bool
         let color: Color
         let hasTrades: Bool
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        @Environment(\.edgeAnimationsEnabled) private var animationsEnabled
         @State private var hovered = false
         var body: some View {
+            let shouldAnimate = animationsEnabled && !reduceMotion
             configuration.label
-                .background(selected ? Palette.mint.opacity(0.09) : hovered ? Palette.raised.opacity(0.65) : hasTrades ? color.opacity(0.065) : Palette.raised.opacity(0.3), in: RoundedRectangle(cornerRadius: 11))
-                .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(selected ? Palette.mint.opacity(0.75) : Palette.muted.opacity(hovered ? 0.28 : 0.1), lineWidth: selected ? 1.5 : 1))
-                .opacity(configuration.isPressed ? 0.7 : 1).contentShape(RoundedRectangle(cornerRadius: 11))
+                .background(selected ? Palette.mint.opacity(0.11) : hovered ? Palette.raised.opacity(0.72) : hasTrades ? color.opacity(0.075) : Palette.raised.opacity(0.28), in: RoundedRectangle(cornerRadius: 11))
+                .overlay(alignment: .top) {
+                    if hasTrades {
+                        Capsule().fill(color.opacity(selected || hovered ? 0.9 : 0.55)).frame(height: 2.5).padding(.horizontal, 14).padding(.top, 2)
+                    }
+                }
+                .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(selected ? Palette.mint.opacity(0.8) : hasTrades && hovered ? color.opacity(0.45) : Palette.muted.opacity(hovered ? 0.3 : 0.1), lineWidth: selected ? 1.5 : 1))
+                .shadow(color: selected ? Palette.mint.opacity(0.14) : hovered ? .black.opacity(0.12) : .clear, radius: selected || hovered ? 8 : 0, x: 0, y: 3)
+                .scaleEffect(configuration.isPressed ? 0.97 : (shouldAnimate && hovered ? 1.02 : 1.0))
+                .contentShape(RoundedRectangle(cornerRadius: 11))
                 .onHover { hovered = $0 }
+                .animation(shouldAnimate ? .spring(response: 0.22, dampingFraction: 0.78) : nil, value: hovered)
+                .animation(shouldAnimate ? .spring(response: 0.2, dampingFraction: 0.78) : nil, value: selected)
         }
     }
 }

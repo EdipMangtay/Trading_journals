@@ -87,7 +87,7 @@ struct TradeDetailView: View {
                                 ForEach(shots, id: \.id) { shot in
                                     Button { do { selectedImage = try ScreenshotDraft(shot) } catch { store.report(error) } } label: {
                                         VStack(alignment: .leading, spacing: 12) {
-                                            ScreenshotThumbnail(data: shot.thumbnailData).frame(height: 170).clipShape(RoundedRectangle(cornerRadius: 11))
+                                            ScreenshotThumbnail(data: shot.thumbnailData, cacheKey: "thumb-\(shot.id.uuidString)").frame(height: 170).clipShape(RoundedRectangle(cornerRadius: 11))
                                             HStack { Badge(text: shot.category); Spacer(); Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 11)).foregroundStyle(Palette.muted) }
                                             Text(verbatim: shot.name).font(.system(size: 10)).foregroundStyle(Palette.muted).lineLimit(1)
                                         }.padding(11).background(Palette.raised.opacity(0.4), in: RoundedRectangle(cornerRadius: 13))
@@ -97,16 +97,19 @@ struct TradeDetailView: View {
                         }
                         Panel(title: "CONTEXT & EXECUTION") {
                             detailRow("Prices", "Giriş \(numeric(t.entryPrice)) · Stop \(numeric(t.stopLoss)) · Kâr al \(numeric(t.takeProfit)) · Çıkış \(numeric(t.exitPrice))")
-                            detailRow("Size / fees", "\(numeric(t.positionSize)) · \(Format.money(t.fees, currency: store.preferences.currency)) masraf")
-                            detailRow("Context timeframes", t.contextTimeframes.map(L10n.text).joined(separator: ", "))
-                            detailRow("Liquidity taken", t.liquidityTaken.map(L10n.text).joined(separator: ", "))
-                            detailRow("QT", "HTF \(t.qt.higherQuarter) · Günlük \(t.qt.dailyQuarter) · 90 dk \(t.qt.cycle90) · 22,5 dk \(t.qt.cycle22) · \(L10n.text(t.qt.phase))")
-                            detailRow("MMXM", L10n.text(t.mmxm.model) + (t.mmxm.valid ? " · Geçerli" : " · Teyitsiz"))
-                            detailRow("PO3", L10n.text(t.po3.phase) + " · Manipülasyon " + L10n.text(t.po3.manipulationDirection) + (t.po3.valid ? " · Geçerli" : " · Teyitsiz"))
-                            detailRow("SSMT", L10n.text(t.ssmt.type) + " · " + t.ssmt.markets.joined(separator: ", ") + (t.hasSSMT ? " · Geçerli" : " · Teyitsiz"))
-                            detailRow("TSMO", L10n.text(t.tsmo) + (t.tsmoValid ? " · Geçerli" : " · Teyitsiz"))
-                            detailRow("CRT", "\(t.crt.timeframe) · Aralık \(numeric(t.crt.low)) – \(numeric(t.crt.high)) · \(L10n.text(t.crt.liquidityTaken)) alındı")
-                            detailRow("Confirmations", t.confirmations.map(L10n.text).joined(separator: ", "))
+                            detailRow("Size / fees", "\(numeric(t.positionSize)) · \(Format.money(t.fees, currency: store.currency(for: t.id))) masraf")
+                            detailRow("HTF Bias & İlişki", "\(t.bias) · \(t.biasRelation) · News: \(t.newsDriver)")
+                            if !t.narrative.isEmpty { detailRow("Narrative", t.narrative) }
+                            detailRow("Context timeframes", t.contextTimeframes.joined(separator: ", "))
+                            detailRow("Draw on Liquidity", t.drawOnLiquidity)
+                            detailRow("Liquidity taken", t.liquidityTaken.joined(separator: ", "))
+                            detailRow("QT", "\(t.qt.profile) · HTF \(t.qt.higherQuarter) · Daily \(t.qt.dailyQuarter) · 90m \(t.qt.cycle90) · 22.5m \(t.qt.cycle22) · \(t.qt.phase) · \(t.qt.trueOpenAnchor) (\(t.qt.trueOpenLocation))")
+                            detailRow("MMXM", t.mmxm.model + (t.mmxm.valid ? " · Valid" : " · Unconfirmed"))
+                            detailRow("PO3", t.po3.phase + " · Manipulation " + t.po3.manipulationDirection + (t.po3.valid ? " · Valid" : " · Unconfirmed"))
+                            detailRow("SSMT", t.ssmt.type + " · " + t.ssmt.markets.joined(separator: ", ") + (t.hasSSMT ? " · Valid" : " · Unconfirmed"))
+                            detailRow("TSMO", t.tsmo + (t.tsmoValid ? " · Valid" : " · Unconfirmed"))
+                            detailRow("CRT", "\(t.crt.timeframe) · Range \(numeric(t.crt.low)) – \(numeric(t.crt.high)) · \(t.crt.liquidityTaken) Sweep")
+                            detailRow("Confirmations", t.confirmations.joined(separator: ", "))
                             detailRow("Tags", t.tags.joined(separator: ", "))
                         }
                         Panel(title: "EXECUTION SCORES") {

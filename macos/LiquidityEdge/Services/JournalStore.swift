@@ -28,11 +28,23 @@ struct JournalError: LocalizedError {
     private(set) var backupErrorMessage: String?
     private var dailyBackupDay: String?
     private(set) var workspace = WorkspaceState()
-    var selectedAccount: TradingAccount { workspace.accounts.first { $0.id == workspace.selectedAccountID } ?? TradingAccount(id: TradingAccount.legacyID, name: "Eski günlük", currency: preferences.currency, startingBalance: preferences.accountSize) }
-    var scopedTrades: [TradeRecord] { trades.filter { accountID(for: $0.id) == selectedAccount.id } }
+    private(set) var selectedAccount: TradingAccount = TradingAccount(id: TradingAccount.legacyID, name: "Eski günlük", currency: "USD", startingBalance: 50000)
+    private(set) var scopedTrades: [TradeRecord] = []
+    @ObservationIgnored private var accountsByID: [UUID: TradingAccount] = [:]
     var accountCurrency: String { selectedAccount.currency }
     func accountID(for tradeID: UUID) -> UUID { workspace.assignments[tradeID] ?? TradingAccount.legacyID }
-    func currency(for tradeID: UUID) -> String { workspace.accounts.first { $0.id == accountID(for: tradeID) }?.currency ?? preferences.currency }
+    func currency(for tradeID: UUID) -> String { accountsByID[accountID(for: tradeID)]?.currency ?? preferences.currency }
+    private func rebuildWorkspaceCaches() {
+        accountsByID = Dictionary(uniqueKeysWithValues: workspace.accounts.map { ($0.id, $0) })
+        let active = accountsByID[workspace.selectedAccountID] ?? TradingAccount(id: TradingAccount.legacyID, name: "Eski günlük", currency: preferences.currency, startingBalance: preferences.accountSize)
+        selectedAccount = active
+        let targetID = active.id
+        if workspace.accounts.count <= 1 && targetID == TradingAccount.legacyID && workspace.assignments.values.allSatisfy({ $0 == targetID }) {
+            scopedTrades = trades
+        } else {
+            scopedTrades = trades.filter { (workspace.assignments[$0.id] ?? TradingAccount.legacyID) == targetID }
+        }
+    }
     func updateWorkspace(_ change: (inout WorkspaceState) throws -> Void) throws {
         var next = workspace; try change(&next); try next.validate(tradeIDs: Set(trades.map(\.id)))
         try commit { try persistWorkspace(next) }
@@ -100,6 +112,7 @@ struct JournalError: LocalizedError {
         instruments = try context.fetch(FetchDescriptor<Instrument>(sortBy: [SortDescriptor(\.symbol)]))
         customRules = try context.fetch(FetchDescriptor<CustomRule>(sortBy: [SortDescriptor(\.name)]))
         reviews = try context.fetch(FetchDescriptor<Review>(sortBy: [SortDescriptor(\.date, order: .reverse)]))
+        rebuildWorkspaceCaches()
         revision += 1
     }
     func model(_ id: UUID) -> Trade? { models[id] }
@@ -167,6 +180,7 @@ struct JournalError: LocalizedError {
         let encoded = try JSONEncoder().encode(preferences)
         if let preferencesURL { try encoded.write(to: preferencesURL, options: .atomic) }
         if usesLegacyPreferences { UserDefaults.standard.set(encoded, forKey: "journal.preferences") }
+        rebuildWorkspaceCaches()
         revision += 1
     }
     /// A portable, immutable snapshot. Snapshots live alongside the database and
@@ -185,10 +199,13 @@ struct JournalError: LocalizedError {
         backupErrorMessage = nil
         return file
     }
-    private static func backupDay(_ date: Date) -> String {
+    private static let dayFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withFullDate]
-        return formatter.string(from: date)
+        return formatter
+    }()
+    private static func backupDay(_ date: Date) -> String {
+        dayFormatter.string(from: date)
     }
     private func reloadBackupMetadata() {
         guard let backupDirectoryURL else { return }

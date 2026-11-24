@@ -31,7 +31,7 @@ struct ScreenshotAttachmentEditor: View {
                 ForEach(shots) { shot in
                     VStack(alignment: .leading, spacing: 8) {
                         Button { selected = shot } label: {
-                            ScreenshotThumbnail(data: shot.thumbnailData).frame(height: 130).clipShape(RoundedRectangle(cornerRadius: 9))
+                            ScreenshotThumbnail(data: shot.thumbnailData, cacheKey: "thumb-\(shot.id.uuidString)").frame(height: 130).clipShape(RoundedRectangle(cornerRadius: 9))
                                 .overlay(alignment: .bottomTrailing) { Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 10)).padding(7).foregroundStyle(Palette.ink).background(Palette.panel.opacity(0.9), in: RoundedRectangle(cornerRadius: 6)).padding(7) }
                         }.buttonStyle(.plain).help(shot.name).accessibilityHint("Görseli incele ve işaretle")
                         HStack(spacing: 8) {
@@ -66,8 +66,17 @@ struct ScreenshotAttachmentEditor: View {
 }
 struct ScreenshotThumbnail: View {
     var data: Data
+    var cacheKey: String? = nil
     var body: some View {
-        Group { if let image = NSImage(data: data) { Image(nsImage: image).resizable().scaledToFit() } else { Image(systemName: "photo").font(.largeTitle).foregroundStyle(Palette.muted) } }.frame(maxWidth: .infinity).background(Palette.canvas)
+        Group {
+            if let image = ImageCache.shared.image(for: data, key: cacheKey) {
+                Image(nsImage: image).resizable().scaledToFit()
+            } else {
+                Image(systemName: "photo").font(.largeTitle).foregroundStyle(Palette.muted)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .background(Palette.canvas)
     }
 }
 struct ScreenshotViewer: View {
@@ -123,7 +132,7 @@ struct ScreenshotViewer: View {
             Rectangle().fill(Palette.muted.opacity(0.12)).frame(height: 1)
             GeometryReader { available in
                 ScrollView([.horizontal, .vertical]) {
-                    if let image = NSImage(data: shot.imageData) {
+                    if let image = ImageCache.shared.image(for: shot.imageData, key: "full-\(shot.id.uuidString)") {
                         let scale = min(available.size.width / max(image.size.width, 1), available.size.height / max(image.size.height, 1))
                         let size = CGSize(width: image.size.width * scale * zoom, height: image.size.height * scale * zoom)
                         ZStack(alignment: .topLeading) {
@@ -194,7 +203,7 @@ struct ScreenshotLibraryView: View {
                 ForEach(visibleItems, id: \.1.id) { trade, shot in
                     Panel {
                         Button { do { selected = try ScreenshotDraft(shot); selectedTradeID = trade.id } catch { store.report(error) } } label: {
-                            ScreenshotThumbnail(data: shot.thumbnailData).frame(height: 190).clipShape(RoundedRectangle(cornerRadius: 11))
+                            ScreenshotThumbnail(data: shot.thumbnailData, cacheKey: "thumb-\(shot.id.uuidString)").frame(height: 190).clipShape(RoundedRectangle(cornerRadius: 11))
                                 .overlay(alignment: .bottomTrailing) { Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 11)).padding(8).foregroundStyle(Palette.ink).background(Palette.panel.opacity(0.9), in: RoundedRectangle(cornerRadius: 7)).padding(9) }
                         }.buttonStyle(.plain).help(shot.name).accessibilityHint("Görsel incelemesini aç")
                         VStack(alignment: .leading, spacing: 10) {

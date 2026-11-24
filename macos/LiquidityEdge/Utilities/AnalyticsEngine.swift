@@ -64,62 +64,121 @@ struct MonthlyProcess: Identifiable {
     var id: Date { date }
 }
 enum AnalyticsEngine {
-    static func ordered(_ trades: [TradeRecord]) -> [TradeRecord] {
-        trades.sorted { $0.date == $1.date ? $0.id.uuidString < $1.id.uuidString : $0.date < $1.date }
+    @inline(__always)
+    private static func compareUUID(_ a: UUID, _ b: UUID) -> Bool {
+        withUnsafeBytes(of: a.uuid) { lhs in
+            withUnsafeBytes(of: b.uuid) { rhs in
+                for i in 0..<16 {
+                    if lhs[i] != rhs[i] { return lhs[i] < rhs[i] }
+                }
+                return false
+            }
+        }
     }
+
+    static func ordered(_ trades: [TradeRecord]) -> [TradeRecord] {
+        guard trades.count > 1 else { return trades }
+        // Fast path: check if already sorted ascending before allocating a sorted copy
+        var isSorted = true
+        for i in 1..<trades.count {
+            let prev = trades[i - 1], curr = trades[i]
+            if prev.date > curr.date || (prev.date == curr.date && compareUUID(curr.id, prev.id)) {
+                isSorted = false
+                break
+            }
+        }
+        if isSorted { return trades }
+        return trades.sorted { $0.date == $1.date ? compareUUID($0.id, $1.id) : $0.date < $1.date }
+    }
+
     static func performance(_ trades: [TradeRecord]) -> Performance {
         var p = Performance()
         p.count = trades.count
         guard !trades.isEmpty else { return p }
-        var equity = 0.0, peak = 0.0, valid = 0, winR: [Double] = [], durations: [Double] = []
+        var equity = 0.0, peak = 0.0, valid = 0
+        var winRSum = 0.0, winRCount = 0
+        var durationSum = 0.0, durationCount = 0
+        var best = -Double.infinity, worst = Double.infinity
+        var aPlusCount = 0, aPlusWins = 0
         for t in ordered(trades) {
             let n = t.netPnL
             p.netPnL += n
+            if n > best { best = n }
+            if n < worst { worst = n }
             if n >= 0.005 {
                 p.wins += 1; p.grossProfit += n
                 p.currentWinStreak += 1; p.currentLossStreak = 0
-                if let r = t.rMultiple { winR.append(r) }
+                if let r = t.rMultiple { winRSum += r; winRCount += 1 }
             } else if n <= -0.005 {
                 p.losses += 1; p.grossLoss += abs(n)
                 p.currentLossStreak += 1; p.currentWinStreak = 0
             } else { p.currentWinStreak = 0; p.currentLossStreak = 0 }
-            p.longestWinStreak = max(p.longestWinStreak, p.currentWinStreak)
-            p.longestLossStreak = max(p.longestLossStreak, p.currentLossStreak)
+            if p.currentWinStreak > p.longestWinStreak { p.longestWinStreak = p.currentWinStreak }
+            if p.currentLossStreak > p.longestLossStreak { p.longestLossStreak = p.currentLossStreak }
             if let r = t.rMultiple { p.totalR += r; p.rCount += 1 }
-            equity += n; peak = max(peak, equity); p.maxDrawdown = max(p.maxDrawdown, peak - equity)
+            equity += n
+            if equity > peak { peak = equity }
+            let dd = peak - equity
+            if dd > p.maxDrawdown { p.maxDrawdown = dd }
             if t.compliant { valid += 1 }
             p.executionScore += t.scores.overall
-            if let duration = t.duration, duration >= 0 { durations.append(duration) }
+            if let duration = t.duration, duration >= 0 { durationSum += duration; durationCount += 1 }
+            if t.grade == "A+" {
+                aPlusCount += 1
+                if n >= 0.005 { aPlusWins += 1 }
+            }
         }
         p.averageWinner = p.wins > 0 ? p.grossProfit / Double(p.wins) : 0
         p.averageLoser = p.losses > 0 ? -p.grossLoss / Double(p.losses) : 0
-        p.bestTrade = trades.map(\.netPnL).max() ?? 0
-        p.worstTrade = trades.map(\.netPnL).min() ?? 0
+        p.bestTrade = best.isFinite ? best : 0
+        p.worstTrade = worst.isFinite ? worst : 0
         p.compliance = Double(valid) / Double(p.count) * 100
         p.executionScore /= Double(p.count)
-        p.averageWinningR = winR.isEmpty ? nil : winR.reduce(0,+) / Double(winR.count)
-        p.averageDuration = durations.isEmpty ? nil : durations.reduce(0,+) / Double(durations.count)
-        let aPlus = trades.filter { $0.grade == "A+" }
-        p.aPlusWinRate = aPlus.isEmpty ? nil : Double(aPlus.filter { $0.netPnL >= 0.005 }.count) / Double(aPlus.count) * 100
+        p.averageWinningR = winRCount == 0 ? nil : winRSum / Double(winRCount)
+        p.averageDuration = durationCount == 0 ? nil : durationSum / Double(durationCount)
+        p.aPlusWinRate = aPlusCount == 0 ? nil : Double(aPlusWins) / Double(aPlusCount) * 100
         return p
     }
+
     static func curve(_ trades: [TradeRecord]) -> [CurvePoint] {
         let sorted = ordered(trades)
         guard let first = sorted.first else { return [] }
-        var result = [CurvePoint(id: 0, date: first.date.addingTimeInterval(-1), equity: 0, r: 0, drawdown: 0, rollingWinRate: 0)]
-        var equity = 0.0, r = 0.0, peak = 0.0, window: [Bool] = []
+        var result: [CurvePoint] = []
+        result.reserveCapacity(sorted.count + 1)
+        result.append(CurvePoint(id: 0, date: first.date.addingTimeInterval(-1), equity: 0, r: 0, drawdown: 0, rollingWinRate: 0))
+        var equity = 0.0, r = 0.0, peak = 0.0
+        var ring = Array(repeating: false, count: 20)
+        var ringHead = 0, windowCount = 0, windowWins = 0
         for (index, t) in sorted.enumerated() {
-            equity += t.netPnL; r += t.rMultiple ?? 0; peak = max(peak, equity)
-            window.append(t.netPnL >= 0.005); if window.count > 20 { window.removeFirst() }
-            result.append(CurvePoint(id: index + 1, date: t.date, equity: equity, r: r, drawdown: equity - peak, rollingWinRate: Double(window.filter { $0 }.count) / Double(window.count) * 100))
+            equity += t.netPnL; r += t.rMultiple ?? 0
+            if equity > peak { peak = equity }
+            let isWin = t.netPnL >= 0.005
+            if windowCount == 20 {
+                if ring[ringHead] { windowWins -= 1 }
+            } else {
+                windowCount += 1
+            }
+            ring[ringHead] = isWin
+            if isWin { windowWins += 1 }
+            ringHead = (ringHead + 1) % 20
+            result.append(CurvePoint(id: index + 1, date: t.date, equity: equity, r: r, drawdown: equity - peak, rollingWinRate: Double(windowWins) / Double(windowCount) * 100))
         }
         return result
     }
+
     static func groups(_ trades: [TradeRecord], by dimension: AnalysisDimension, calendar: Calendar) -> [MetricGroup] {
         var buckets: [String: [TradeRecord]] = [:]
-        for t in trades { for key in Set(dimension.keys(t, calendar: calendar)) { buckets[key, default: []].append(t) } }
+        for t in trades {
+            let keys = dimension.keys(t, calendar: calendar)
+            if keys.count == 1 {
+                buckets[keys[0], default: []].append(t)
+            } else {
+                for key in Set(keys) { buckets[key, default: []].append(t) }
+            }
+        }
         return buckets.map { MetricGroup(name: $0.key, performance: performance($0.value)) }.sorted { $0.name < $1.name }
     }
+
     static func comparisons(_ trades: [TradeRecord]) -> [Comparison] {
         func compare(_ title: String, _ a: String, _ b: String, _ left: (TradeRecord) -> Bool, _ right: (TradeRecord) -> Bool) -> Comparison {
             Comparison(title: title, left: MetricGroup(name: a, performance: performance(trades.filter(left))), right: MetricGroup(name: b, performance: performance(trades.filter(right))))
@@ -134,16 +193,30 @@ enum AnalyticsEngine {
             compare("Process advantage", "Fully valid trades", "Rule break trades", { $0.compliant }, { !$0.compliant })
         ]
     }
+
+    private static let modelNames = ["QT", "MMXM", "SSMT", "TSMO", "CRT"]
+    private static let multiModelMasks: [(Int, String)] = (1..<32).compactMap { mask in
+        guard mask.nonzeroBitCount >= 2 else { return nil }
+        let label = (0..<5).compactMap { (mask & (1 << $0)) != 0 ? modelNames[$0] : nil }.joined(separator: " + ")
+        return (mask, label)
+    }
+    private static let singleModelMasks: [(Int, String)] = (0..<5).map { (1 << $0, modelNames[$0] + " Only") }
+
     static func edgeMatrix(_ trades: [TradeRecord]) -> [EdgeCombination] {
-        let names = ["QT", "MMXM", "SSMT", "TSMO", "CRT"]
         var groups: [String: [TradeRecord]] = [:]
         for t in trades {
-            let flags = [t.hasQT, t.hasMMXM, t.hasSSMT, t.hasTSMO, t.hasCRT]
-            for mask in 1..<32 where mask.nonzeroBitCount >= 2 {
-                let indexes = (0..<5).filter { mask & (1 << $0) != 0 }
-                if indexes.allSatisfy({ flags[$0] }) { groups[indexes.map { names[$0] }.joined(separator: " + "), default: []].append(t) }
+            let bits = (t.hasQT ? 1 : 0) | (t.hasMMXM ? 2 : 0) | (t.hasSSMT ? 4 : 0) | (t.hasTSMO ? 8 : 0) | (t.hasCRT ? 16 : 0)
+            guard bits != 0 else { continue }
+            if bits.nonzeroBitCount == 1 {
+                for (mask, name) in singleModelMasks where bits == mask {
+                    groups[name, default: []].append(t)
+                    break
+                }
+            } else {
+                for (mask, name) in multiModelMasks where (bits & mask) == mask {
+                    groups[name, default: []].append(t)
+                }
             }
-            for i in 0..<5 where flags[i] && flags.filter({ $0 }).count == 1 { groups[names[i] + " Only", default: []].append(t) }
         }
         return groups.map { EdgeCombination(name: $0.key, performance: performance($0.value)) }.sorted { $0.performance.count == $1.performance.count ? $0.name < $1.name : $0.performance.count > $1.performance.count }
     }

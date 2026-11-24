@@ -40,11 +40,12 @@ struct RootView: View {
     @State private var palette = false
     @State private var globalQuery = ""
     @FocusState private var searchFocused: Bool
+    @Namespace private var sidebarNamespace
     private var page: JournalPage {
         get { JournalPage(rawValue: selectedPage) ?? .dashboard }
         nonmutating set { selectedPage = newValue.rawValue }
     }
-    private var animation: Animation? { store.preferences.animations && !reduceMotion ? .easeInOut(duration: 0.18) : nil }
+    private var animation: Animation? { store.preferences.animations && !reduceMotion ? .spring(response: 0.3, dampingFraction: 0.84) : nil }
     var body: some View {
         HStack(spacing: 0) {
             sidebar
@@ -52,7 +53,23 @@ struct RootView: View {
             VStack(spacing: 0) {
                 topbar
                 if store.isDemo { demoBanner }
-                content.frame(maxWidth: .infinity, maxHeight: .infinity).id(page).transition(.opacity)
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .id(page)
+                    .transition(store.preferences.animations && !reduceMotion ? .asymmetric(insertion: .opacity.combined(with: .offset(y: 6)), removal: .opacity) : .identity)
+            }
+            .background {
+                ZStack(alignment: .topLeading) {
+                    Palette.canvas
+                    RadialGradient(
+                        colors: [Palette.mint.opacity(0.045), Palette.blue.opacity(0.015), .clear],
+                        center: .topLeading,
+                        startRadius: 20,
+                        endRadius: 680
+                    )
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                }
             }
         }.background(Palette.canvas).foregroundStyle(Palette.ink).tint(Palette.mint)
         .animation(animation, value: page).animation(animation, value: collapsed)
@@ -116,17 +133,52 @@ struct RootView: View {
         }
     }
     private func navigationItem(_ item: JournalPage) -> some View {
-        Button { page = item } label: {
+        let isSelected = page == item
+        return Button {
+            if page != item {
+                page = item
+                if store.preferences.animations && !reduceMotion { EdgeHaptics.tick() }
+            }
+        } label: {
             HStack(spacing: 11) {
-                Image(systemName: item.icon).font(.system(size: 14, weight: page == item ? .semibold : .regular)).foregroundStyle(page == item ? Palette.mint : Palette.muted).frame(width: 20)
+                Image(systemName: item.icon)
+                    .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? Palette.mint : Palette.muted)
+                    .frame(width: 20)
                 if !collapsed {
-                    Text(L10n.text(item.rawValue)).font(.system(size: 12, weight: page == item ? .semibold : .medium))
+                    Text(L10n.text(item.rawValue))
+                        .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                        .foregroundStyle(isSelected ? Palette.ink : Palette.muted)
                     Spacer(minLength: 0)
-                    if item == .trades && !store.trades.isEmpty { Text(store.trades.count.description).font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(Palette.muted).padding(.horizontal, 6).padding(.vertical, 3).background(Palette.raised, in: RoundedRectangle(cornerRadius: 4)) }
+                    if item == .trades && !store.scopedTrades.isEmpty {
+                        Text(store.scopedTrades.count.description)
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(isSelected ? Palette.mint : Palette.muted)
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(isSelected ? Palette.mint.opacity(0.14) : Palette.raised, in: RoundedRectangle(cornerRadius: 5))
+                            .contentTransition(.numericText())
+                    }
                 }
-            }.frame(maxWidth: .infinity, minHeight: 39, alignment: .leading).padding(.horizontal, 12)
-        }.buttonStyle(NavigationButtonStyle(selected: page == item))
-            .help(L10n.text(item.rawValue)).accessibilityLabel(L10n.text(item.rawValue)).accessibilityAddTraits(page == item ? [.isSelected] : [])
+            }
+            .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+            .padding(.horizontal, 12)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 9)
+                        .fill(LinearGradient(colors: [Palette.mint.opacity(0.14), Palette.mint.opacity(0.05)], startPoint: .leading, endPoint: .trailing))
+                        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Palette.mint.opacity(0.24), lineWidth: 1))
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(Palette.mint).frame(width: 3, height: 18).padding(.leading, 1)
+                                .shadow(color: Palette.mint.opacity(0.6), radius: 4, x: 0, y: 0)
+                        }
+                        .matchedGeometryEffect(id: "sidebarActivePill", in: sidebarNamespace)
+                }
+            }
+        }
+        .buttonStyle(SidebarRowHoverStyle(selected: isSelected))
+        .help(L10n.text(item.rawValue))
+        .accessibilityLabel(L10n.text(item.rawValue))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
     private var topbar: some View {
         HStack(spacing: 13) {
@@ -186,7 +238,10 @@ struct RootView: View {
     private var matchingPages: [JournalPage] {
         JournalPage.allCases.filter { globalQuery.isEmpty || $0.rawValue.localizedCaseInsensitiveContains(globalQuery) || L10n.text($0.rawValue).localizedCaseInsensitiveContains(globalQuery) }
     }
-    private var matchingTrades: [TradeRecord] { store.trades.filter { TradeSearch.matches($0, query: globalQuery) } }
+    private var matchingTrades: [TradeRecord] {
+        let prepared = TradeSearch.PreparedQuery(globalQuery)
+        return store.scopedTrades.filter { prepared.matches($0) }
+    }
     private func submitSearch() {
         if let item = matchingPages.first { palette = false; if item == .newTrade { DispatchQueue.main.async { editor = EditorRoute() } } else { page = item } }
         else if let trade = matchingTrades.first { palette = false; DispatchQueue.main.async { openTrade(trade) } }

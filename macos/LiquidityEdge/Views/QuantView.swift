@@ -3,25 +3,32 @@ import Charts
 
 struct QuantView: View {
     @Environment(JournalStore.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.edgeAnimationsEnabled) private var animationsEnabled
 
     @State private var runs: Double = 500
     @State private var horizon: Double = 100
     @State private var shuffle = false
     @State private var rollingWindow: Double = 20
     @State private var simulationSeed: UInt64 = 42
+    @State private var cachedSimulation: WorkstationAnalytics.Simulation?
+    @State private var isSimulating = false
+    @State private var hoveredStep: Int?
+
+    private var animate: Bool { store.preferences.animations && animationsEnabled && !reduceMotion }
 
     private var trades: [TradeRecord] {
         store.scopedTrades
     }
 
-    private var simulation: WorkstationAnalytics.Simulation? {
-        WorkstationAnalytics.simulate(
-            trades,
-            runs: Int(runs),
-            horizon: Int(horizon),
-            shuffle: shuffle,
-            seed: simulationSeed
-        )
+    private var simulationKey: String {
+        "\(store.revision)-\(store.selectedAccount.id)-\(Int(runs))-\(Int(horizon))-\(shuffle)-\(simulationSeed)"
+    }
+
+    private var activeSimulation: WorkstationAnalytics.Simulation? {
+        if let cachedSimulation { return cachedSimulation }
+        // Immediate deterministic fallback for first frame / offscreen preview capture
+        return WorkstationAnalytics.simulate(trades, runs: Int(runs), horizon: Int(horizon), shuffle: shuffle, seed: simulationSeed)
     }
 
     private var underwaterInfo: WorkstationAnalytics.Underwater {
@@ -43,15 +50,28 @@ struct QuantView: View {
                         subtitle: "Senaryo ve Monte Carlo simülasyonları için en az 3 tamamlanmış işlem kaydı gereklidir."
                     )
                 } else {
-                    keyRiskMetricsRibbon
-                    monteCarloSection
-                    drawdownDurationSection
-                    rollingExpectancySection
-                    riskConcentrationSection
+                    keyRiskMetricsRibbon.edgeEntrance(delay: 0.02)
+                    monteCarloSection.edgeEntrance(delay: 0.06)
+                    drawdownDurationSection.edgeEntrance(delay: 0.1)
+                    rollingExpectancySection.edgeEntrance(delay: 0.14)
+                    riskConcentrationSection.edgeEntrance(delay: 0.18)
                     methodologyDisclaimer
                 }
             }
             .pagePadding()
+        }
+        .task(id: simulationKey) {
+            let snapshot = trades
+            let r = Int(runs), h = Int(horizon), sh = shuffle, seed = simulationSeed
+            guard snapshot.count >= 3 else { cachedSimulation = nil; return }
+            isSimulating = true
+            let result = await Task.detached(priority: .userInitiated) {
+                WorkstationAnalytics.simulate(snapshot, runs: r, horizon: h, shuffle: sh, seed: seed)
+            }.value
+            if !Task.isCancelled {
+                cachedSimulation = result
+                isSimulating = false
+            }
         }
     }
 
@@ -122,8 +142,13 @@ struct QuantView: View {
 
                     Spacer()
 
+                    if isSimulating {
+                        ProgressView().controlSize(.small)
+                    }
+
                     Button {
                         simulationSeed = UInt64.random(in: 1...1000000)
+                        if animate { EdgeHaptics.selection() }
                     } label: {
                         Label("Yeniden Simüle Et", systemImage: "arrow.triangle.2.circlepath")
                     }
@@ -132,7 +157,8 @@ struct QuantView: View {
                 .padding(14)
                 .background(Palette.field.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
 
-                if let sim = simulation {
+                if let sim = activeSimulation {
+                    let hoveredPoint = hoveredStep.flatMap { step in sim.band.first { $0.id == step } }
                     // Monte Carlo Band Chart
                     Chart {
                         ForEach(sim.band) { pt in
@@ -141,33 +167,89 @@ struct QuantView: View {
                                 yStart: .value("5th", pt.low),
                                 yEnd: .value("95th", pt.high)
                             )
-                            .foregroundStyle(Palette.mint.opacity(0.12))
+                            .foregroundStyle(LinearGradient(colors: [Palette.mint.opacity(0.20), Palette.blue.opacity(0.08), Palette.red.opacity(0.08)], startPoint: .top, endPoint: .bottom))
 
                             LineMark(
                                 x: .value("Adım", pt.id),
-                                y: .value("Medyan", pt.median)
+                                y: .value("Medyan", pt.median),
+                                series: .value("Seri", "Medyan Halo")
+                            )
+                            .foregroundStyle(Palette.mint.opacity(0.24))
+                            .lineStyle(StrokeStyle(lineWidth: 6.5, lineCap: .round, lineJoin: .round))
+
+                            LineMark(
+                                x: .value("Adım", pt.id),
+                                y: .value("Medyan", pt.median),
+                                series: .value("Seri", "Medyan")
                             )
                             .foregroundStyle(Palette.mint)
-                            .lineStyle(StrokeStyle(lineWidth: 2))
+                            .lineStyle(StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
 
                             LineMark(
                                 x: .value("Adım", pt.id),
-                                y: .value("95. Yüzdelik", pt.high)
+                                y: .value("95. Yüzdelik", pt.high),
+                                series: .value("Seri", "95th")
                             )
-                            .foregroundStyle(Palette.mint.opacity(0.4))
-                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                            .foregroundStyle(Palette.mint.opacity(0.65))
+                            .lineStyle(StrokeStyle(lineWidth: 1.2, dash: [4, 4]))
 
                             LineMark(
                                 x: .value("Adım", pt.id),
-                                y: .value("5. Yüzdelik", pt.low)
+                                y: .value("5. Yüzdelik", pt.low),
+                                series: .value("Seri", "5th")
                             )
-                            .foregroundStyle(Palette.red.opacity(0.4))
-                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                            .foregroundStyle(Palette.red.opacity(0.65))
+                            .lineStyle(StrokeStyle(lineWidth: 1.2, dash: [4, 4]))
                         }
 
                         RuleMark(y: .value("Sıfır", 0))
                             .foregroundStyle(Palette.muted.opacity(0.4))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 2]))
+
+                        if let pt = hoveredPoint {
+                            RuleMark(x: .value("Seçili Adım", pt.id))
+                                .foregroundStyle(Palette.mint.opacity(0.45))
+                                .lineStyle(StrokeStyle(lineWidth: 1.2, dash: [3, 3]))
+                            PointMark(x: .value("Adım", pt.id), y: .value("Medyan", pt.median))
+                                .foregroundStyle(Palette.mint)
+                                .symbolSize(64)
+                                .annotation(position: .top, spacing: 10, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("İşlem +\(pt.id)").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(Palette.muted)
+                                        HStack(spacing: 8) {
+                                            Text("95%: \(Format.money(pt.high, currency: store.accountCurrency))").foregroundStyle(Palette.mint)
+                                            Text("Med: \(Format.money(pt.median, currency: store.accountCurrency))").foregroundStyle(Palette.ink).fontWeight(.semibold)
+                                            Text("5%: \(Format.money(pt.low, currency: store.accountCurrency))").foregroundStyle(Palette.red)
+                                        }.font(.system(size: 10, design: .monospaced))
+                                    }
+                                    .padding(.horizontal, 10).padding(.vertical, 6)
+                                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                                    .background(Palette.canvas.opacity(0.86), in: RoundedRectangle(cornerRadius: 8))
+                                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Palette.mint.opacity(0.4)))
+                                    .shadow(color: .black.opacity(0.35), radius: 8, x: 0, y: 4)
+                                }
+                        }
+                    }
+                    .chartOverlay { proxy in
+                        GeometryReader { geo in
+                            Color.clear.contentShape(Rectangle()).onContinuousHover { phase in
+                                switch phase {
+                                case .active(let loc):
+                                    guard let plotFrame = proxy.plotFrame else { return }
+                                    let frame = geo[plotFrame]
+                                    guard frame.contains(loc) else { if hoveredStep != nil { hoveredStep = nil }; return }
+                                    if let xVal = proxy.value(atX: loc.x - frame.minX, as: Double.self) {
+                                        let clamped = max(0, min(sim.horizon, Int(xVal.rounded())))
+                                        if clamped != hoveredStep {
+                                            hoveredStep = clamped
+                                            if animate { EdgeHaptics.tick() }
+                                        }
+                                    }
+                                case .ended:
+                                    if hoveredStep != nil { hoveredStep = nil }
+                                }
+                            }
+                        }
                     }
                     .chartYAxis {
                         AxisMarks(position: .leading) { value in
@@ -193,7 +275,9 @@ struct QuantView: View {
                             }
                         }
                     }
-                    .frame(height: 280)
+                    .frame(height: 295)
+                    .animation(animate ? .spring(response: 0.35, dampingFraction: 0.82) : nil, value: simulationSeed)
+                    .animation(animate ? .spring(response: 0.22, dampingFraction: 0.85) : nil, value: hoveredStep)
 
                     // Simulation Stats Ribbon
                     HStack(spacing: 20) {

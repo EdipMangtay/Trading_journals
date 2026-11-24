@@ -2,19 +2,20 @@ import SwiftUI
 import AppKit
 
 enum Palette {
-    static let canvas = adaptive(0x0B1017, 0xF3F5F8)
-    static let panel = adaptive(0x121A25, 0xFFFFFF)
-    static let raised = adaptive(0x1C2838, 0xEAF0F6)
-    static let sidebar = adaptive(0x101722, 0xEDF1F6)
-    static let field = adaptive(0x0E1520, 0xF6F8FA)
-    static let line = adaptive(0x273342, 0xDCE3EB)
-    static let primaryButtonInk = adaptive(0x09271C, 0xFFFFFF)
-    static let ink = adaptive(0xEEF2F5, 0x19222C)
-    static let muted = adaptive(0xA0AAB7, 0x536274)
-    static let mint = adaptive(0x66D8AD, 0x087851)
-    static let red = adaptive(0xF17F85, 0xBA3546)
-    static let amber = adaptive(0xE9B66D, 0x906018)
-    static let blue = adaptive(0x85AEF2, 0x315EAB)
+    static let canvas = adaptive(0x080C12, 0xF4F6F9)
+    static let panel = adaptive(0x101722, 0xFFFFFF)
+    static let raised = adaptive(0x192434, 0xEBF0F6)
+    static let sidebar = adaptive(0x0C1119, 0xEEF2F7)
+    static let field = adaptive(0x0B111A, 0xF6F8FB)
+    static let line = adaptive(0x222E3E, 0xDCE3EC)
+    static let primaryButtonInk = adaptive(0x062016, 0xFFFFFF)
+    static let ink = adaptive(0xF1F5F8, 0x16202A)
+    static let muted = adaptive(0x9AA6B6, 0x526173)
+    static let mint = adaptive(0x5CE1B3, 0x087851)
+    static let red = adaptive(0xF4767E, 0xBA3546)
+    static let amber = adaptive(0xF0BC6B, 0x906018)
+    static let blue = adaptive(0x7DA9F8, 0x315EAB)
+    static let specular = adaptive(0xFFFFFF, 0xFFFFFF)
     static func adaptive(_ dark: UInt32, _ light: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let hex = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
@@ -24,6 +25,15 @@ enum Palette {
     static func outcome(_ number: Double) -> Color { number > 0 ? mint : number < 0 ? red : muted }
     static func classification(_ c: Classification) -> Color {
         switch c { case .invalidWinner, .invalidLoser: return amber; case .validWinner: return mint; case .validLoser: return blue; case .breakeven: return muted }
+    }
+}
+
+enum EdgeHaptics {
+    @MainActor static func tick() {
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+    }
+    @MainActor static func selection() {
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
     }
 }
 enum Format {
@@ -102,13 +112,15 @@ struct EdgeButtonStyle: ButtonStyle {
                 .background(fill, in: RoundedRectangle(cornerRadius: compact ? 7 : 9))
                 .overlay(RoundedRectangle(cornerRadius: compact ? 7 : 9).strokeBorder(stroke, lineWidth: isFocused ? 2 : 1))
                 .overlay(alignment: .top) {
-                    RoundedRectangle(cornerRadius: 1).fill(Color.white.opacity(prominent && isEnabled ? 0.12 : 0.025)).frame(height: 1).padding(.horizontal, 9)
+                    RoundedRectangle(cornerRadius: 1).fill(Color.white.opacity(prominent && isEnabled ? 0.22 : hovered ? 0.08 : 0.035)).frame(height: 1).padding(.horizontal, 9)
                 }
-                .opacity(configuration.isPressed && !prominent ? 0.76 : 1)
+                .shadow(color: prominent && isEnabled && hovered ? accent.opacity(0.28) : .clear, radius: 10, x: 0, y: 3)
+                .scaleEffect(configuration.isPressed && isEnabled ? 0.97 : 1.0)
+                .opacity(configuration.isPressed && !prominent ? 0.8 : 1)
                 .contentShape(RoundedRectangle(cornerRadius: 9))
                 .onHover { hovered = $0 }
-                .animation(animationsEnabled && !reduceMotion ? .easeOut(duration: 0.12) : nil, value: hovered)
-                .animation(animationsEnabled && !reduceMotion ? .easeOut(duration: 0.08) : nil, value: configuration.isPressed)
+                .animation(animationsEnabled && !reduceMotion ? .spring(response: 0.22, dampingFraction: 0.78) : nil, value: hovered)
+                .animation(animationsEnabled && !reduceMotion ? .spring(response: 0.16, dampingFraction: 0.7) : nil, value: configuration.isPressed)
         }
     }
 }
@@ -263,8 +275,14 @@ struct Panel<Content: View>: View {
             content
         }.padding(22).frame(maxWidth: .infinity, alignment: .leading)
             .background(Palette.panel, in: RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Palette.line.opacity(contrast == .increased ? 1 : 0.8), lineWidth: 1))
-            .shadow(color: .black.opacity(0.035), radius: 12, x: 0, y: 5)
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Palette.line.opacity(contrast == .increased ? 1 : 0.85), lineWidth: 1))
+            .overlay(alignment: .top) {
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(LinearGradient(colors: [Palette.specular.opacity(0.085), Palette.specular.opacity(0.01)], startPoint: .leading, endPoint: .trailing))
+                    .frame(height: 1)
+                    .padding(.horizontal, 18)
+            }
+            .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: 6)
     }
     private func panelTitle(_ title: String) -> some View {
         Text(L10n.text(title)).font(EdgeType.section).tracking(0.1).fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
@@ -303,10 +321,26 @@ struct MetricCard: View {
                 .contentTransition(animationsEnabled && !reduceMotion ? .numericText() : .identity)
             if !footnote.isEmpty { Text(L10n.text(footnote)).font(EdgeType.caption).foregroundStyle(Palette.muted).lineLimit(2).frame(height: 30, alignment: .top) }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(19)
-            .background(hovering ? Palette.raised.opacity(0.65) : Palette.panel, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(hovering ? Palette.muted.opacity(0.3) : Palette.line.opacity(0.8)))
+            .background(
+                ZStack(alignment: .topTrailing) {
+                    RoundedRectangle(cornerRadius: 14).fill(hovering ? Palette.raised.opacity(0.72) : Palette.panel)
+                    if hovering {
+                        RadialGradient(colors: [color.opacity(0.11), .clear], center: .topTrailing, startRadius: 2, endRadius: 120)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                }
+            )
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(hovering ? color.opacity(0.32) : Palette.line.opacity(0.85)))
+            .overlay(alignment: .top) {
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(LinearGradient(colors: [hovering ? color.opacity(0.35) : Palette.specular.opacity(0.07), .clear], startPoint: .leading, endPoint: .trailing))
+                    .frame(height: 1)
+                    .padding(.horizontal, 14)
+            }
+            .shadow(color: .black.opacity(hovering ? 0.14 : 0.04), radius: hovering ? 14 : 6, x: 0, y: hovering ? 6 : 2)
+            .offset(y: animationsEnabled && !reduceMotion && hovering ? -1.5 : 0)
             .onHover { hovering = $0 }
-            .animation(animationsEnabled && !reduceMotion ? .easeOut(duration: 0.14) : nil, value: hovering)
+            .animation(animationsEnabled && !reduceMotion ? .spring(response: 0.24, dampingFraction: 0.78) : nil, value: hovering)
             .accessibilityElement(children: .combine)
     }
     private var symbol: String {
@@ -387,7 +421,115 @@ struct ScoreSlider: View {
         }
     }
 }
+struct SidebarRowHoverStyle: ButtonStyle {
+    var selected = false
+    func makeBody(configuration: Configuration) -> some View {
+        BodyView(configuration: configuration, selected: selected)
+    }
+    private struct BodyView: View {
+        let configuration: ButtonStyleConfiguration
+        let selected: Bool
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        @Environment(\.edgeAnimationsEnabled) private var animationsEnabled
+        @State private var hovered = false
+        var body: some View {
+            configuration.label
+                .background(!selected && hovered ? Palette.raised.opacity(0.6) : .clear, in: RoundedRectangle(cornerRadius: 9))
+                .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+                .contentShape(RoundedRectangle(cornerRadius: 9))
+                .onHover { hovered = $0 }
+                .animation(animationsEnabled && !reduceMotion ? .easeOut(duration: 0.12) : nil, value: hovered)
+                .animation(animationsEnabled && !reduceMotion ? .spring(response: 0.16, dampingFraction: 0.72) : nil, value: configuration.isPressed)
+        }
+    }
+}
+
+struct ExecutionScoreRing: View {
+    var score: Double
+    var size: CGFloat = 128
+    var lineWidth: CGFloat = 9
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.edgeAnimationsEnabled) private var animationsEnabled
+    @State private var animatedProgress: Double = 1.0
+
+    private var clamped: Double { min(1, max(0, score / 100)) }
+    private var ringColor: Color { score >= 75 ? Palette.mint : score >= 50 ? Palette.blue : Palette.amber }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Palette.raised.opacity(0.85), lineWidth: lineWidth)
+            Circle()
+                .trim(from: 0, to: animatedProgress)
+                .stroke(
+                    AngularGradient(
+                        colors: [ringColor.opacity(0.55), ringColor, Palette.mint],
+                        center: .center,
+                        startAngle: .degrees(-90),
+                        endAngle: .degrees(270)
+                    ),
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-90))
+                .shadow(color: ringColor.opacity(0.32), radius: 6, x: 0, y: 0)
+            VStack(spacing: 2) {
+                Text(Format.number(score, digits: 0))
+                    .font(.system(size: 36, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(Palette.ink)
+                    .contentTransition(animationsEnabled && !reduceMotion ? .numericText() : .identity)
+                Text("/ 100")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Palette.muted)
+            }
+        }
+        .frame(width: size, height: size)
+        .onAppear {
+            if animationsEnabled && !reduceMotion {
+                animatedProgress = 0
+                withAnimation(.spring(response: 0.75, dampingFraction: 0.82)) {
+                    animatedProgress = clamped
+                }
+            } else {
+                animatedProgress = clamped
+            }
+        }
+        .onChange(of: score) { _, _ in
+            if animationsEnabled && !reduceMotion {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                    animatedProgress = clamped
+                }
+            } else {
+                animatedProgress = clamped
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Süreç puanı \(Format.number(score, digits: 0)) / 100")
+    }
+}
+
+private struct EdgeEntranceModifier: ViewModifier {
+    let delay: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.edgeAnimationsEnabled) private var animationsEnabled
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        let shouldAnimate = animationsEnabled && !reduceMotion
+        content
+            .opacity(shouldAnimate ? (shown ? 1 : 0) : 1)
+            .offset(y: shouldAnimate ? (shown ? 0 : 8) : 0)
+            .onAppear {
+                guard shouldAnimate, !shown else { return }
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.84).delay(delay)) {
+                    shown = true
+                }
+            }
+    }
+}
+
 extension View {
     func edgeEditorSurface() -> some View { modifier(EdgeEditorSurface()) }
+    func edgeEntrance(delay: Double = 0) -> some View { modifier(EdgeEntranceModifier(delay: delay)) }
     func pagePadding() -> some View { self.padding(28).frame(maxWidth: 1600).frame(maxWidth: .infinity, alignment: .topLeading) }
 }

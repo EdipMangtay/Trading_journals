@@ -34,7 +34,18 @@ struct AccountRiskView: View {
                     TerminalMetric(title: "GERÇEKLEŞEN NET", value: Format.money(risk.realized, currency: account.currency), color: Palette.outcome(risk.realized))
                     TerminalMetric(title: "KAYIP SINIRINA MESAFE", value: risk.remaining.map { Format.money($0, currency: account.currency) } ?? "Tanımlı değil", color: (risk.remaining ?? 0) < 0 ? Palette.red : Palette.ink)
                     TerminalMetric(title: "İŞLEM GÜNÜ", value: "\(risk.days) / \(account.rules.minimumDays.map(String.init) ?? "—")")
-                }.padding(22).background(Palette.panel, in: RoundedRectangle(cornerRadius: 14))
+                }
+                .padding(22)
+                .background(Palette.panel, in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Palette.line.opacity(0.85), lineWidth: 1))
+                .overlay(alignment: .top) {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(LinearGradient(colors: [Palette.mint.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
+                        .frame(height: 1)
+                        .padding(.horizontal, 18)
+                }
+                .shadow(color: .black.opacity(0.08), radius: 14, x: 0, y: 5)
+                .edgeEntrance(delay: 0.03)
                 if risk.unverified { Label("Doğrulanamadı: çıkış zamanı eksik veya kural gün içi equity verisi gerektiriyor. Canlı denetim yapılmaz.", systemImage: "exclamationmark.shield").foregroundStyle(Palette.amber).font(.callout) }
                 if risk.historicalBreach { Label("Kayıtlı kapanışlarda tanımlı kayıp sınırı aşıldı. Geçmiş ihlal sonraki kazançla silinmez.", systemImage: "exclamationmark.triangle").foregroundStyle(Palette.red).font(.callout) }
                 HStack(alignment: .top, spacing: 24) {

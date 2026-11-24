@@ -94,4 +94,30 @@ final class WorkstationTests: XCTestCase {
         XCTAssertNil(WorkstationAnalytics.simulate([]))
         XCTAssertEqual(WorkstationAnalytics.percentile([0, 100], 0.25), 25)
     }
+    func testQTNarrativeDefaultsAndLegacyTradeRecordDecoding() throws {
+        var record = TradeRecord()
+        record.bias = "Bearish"; record.direction = "Long"; record.biasRelation = "Counter-Trend"
+        record.narrative = "London SSL sweep -> NY AM Q3 ERL"
+        record.newsDriver = "Post-News"
+        record.qt.enabled = true; record.qt.profile = "XAMD"; record.qt.trueOpenAnchor = "T90O"; record.qt.trueOpenLocation = "Discount"
+        let encoded = try JSONEncoder().encode(record)
+        let decoded = try JSONDecoder().decode(TradeRecord.self, from: encoded)
+        XCTAssertEqual(decoded, record)
+        XCTAssertTrue(TradeSearch.matches(decoded, query: "counter-trend xamd t90o"))
+        // Simulate legacy V1 JSON missing new QT/Narrative keys
+        var object = try XCTUnwrap(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "narrative"); object.removeValue(forKey: "biasRelation"); object.removeValue(forKey: "newsDriver")
+        if var qt = object["qt"] as? [String: Any] {
+            qt.removeValue(forKey: "profile"); qt.removeValue(forKey: "trueOpenAnchor"); qt.removeValue(forKey: "trueOpenLocation")
+            object["qt"] = qt
+        }
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+        let legacyDecoded = try JSONDecoder().decode(TradeRecord.self, from: legacyData)
+        XCTAssertEqual(legacyDecoded.narrative, "")
+        XCTAssertEqual(legacyDecoded.biasRelation, "Pro-Trend")
+        XCTAssertEqual(legacyDecoded.newsDriver, "Clean")
+        XCTAssertEqual(legacyDecoded.qt.profile, "AMDX")
+        XCTAssertEqual(legacyDecoded.qt.trueOpenAnchor, "TDO")
+        XCTAssertEqual(legacyDecoded.qt.trueOpenLocation, "Discount")
+    }
 }

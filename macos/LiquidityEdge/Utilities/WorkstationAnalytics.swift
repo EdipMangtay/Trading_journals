@@ -122,12 +122,35 @@ enum WorkstationAnalytics {
         let outcomes = AnalyticsEngine.ordered(trades).map(\.netPnL)
         guard outcomes.allSatisfy(\.isFinite) else { return nil }
         let steps = shuffle ? min(horizon, outcomes.count) : horizon
-        var columns = Array(repeating: [Double](), count: steps + 1), drawdowns: [Double] = [], losses = 0, random = Generator(state: seed)
+        var columns = Array(repeating: [Double](), count: steps + 1)
+        for i in columns.indices { columns[i].reserveCapacity(runs) }
+        var drawdowns: [Double] = []; drawdowns.reserveCapacity(runs)
+        var losses = 0, random = Generator(state: seed)
+        let outcomeCount = outcomes.count
+        var scratch = outcomes
         for _ in 0..<runs {
-            let values = shuffle ? outcomes.shuffled(using: &random) : (0..<steps).map { _ in outcomes[Int.random(in: outcomes.indices, using: &random)] }
             var equity = 0.0, peak = 0.0, dd = 0.0
             columns[0].append(0)
-            for i in 0..<steps { equity += values[i]; peak = max(peak, equity); dd = max(dd, peak - equity); columns[i + 1].append(equity) }
+            if shuffle {
+                scratch = outcomes
+                scratch.shuffle(using: &random)
+                for i in 0..<steps {
+                    equity += scratch[i]
+                    if equity > peak { peak = equity }
+                    let currentDD = peak - equity
+                    if currentDD > dd { dd = currentDD }
+                    columns[i + 1].append(equity)
+                }
+            } else {
+                for i in 0..<steps {
+                    let pick = Int.random(in: 0..<outcomeCount, using: &random)
+                    equity += outcomes[pick]
+                    if equity > peak { peak = equity }
+                    let currentDD = peak - equity
+                    if currentDD > dd { dd = currentDD }
+                    columns[i + 1].append(equity)
+                }
+            }
             drawdowns.append(dd); if equity < 0 { losses += 1 }
         }
         let band = columns.enumerated().map { i, values -> PercentilePoint in let s = values.sorted(); return PercentilePoint(id: i, low: percentile(s, 0.05), median: percentile(s, 0.5), high: percentile(s, 0.95)) }

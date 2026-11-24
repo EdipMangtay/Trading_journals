@@ -27,15 +27,27 @@ struct DashboardView: View {
                     Spacer()
                     Button { customize = true } label: { Label("Düzen", systemImage: "slider.horizontal.3") }.buttonStyle(EdgeButtonStyle(prominent: false))
                 }
-                HStack(spacing: 20) {
+                HStack(spacing: 0) {
                     TerminalMetric(title: "NET SONUÇ", value: data.isEmpty ? "—" : Format.money(p.netPnL, currency: store.accountCurrency), color: Palette.outcome(p.netPnL))
+                    kpiDivider
                     TerminalMetric(title: "ORTALAMA R", value: Format.r(p.averageR), color: Palette.mint)
+                    kpiDivider
                     TerminalMetric(title: "KAZANMA ORANI", value: data.isEmpty ? "—" : Format.percent(p.winRate))
+                    kpiDivider
                     TerminalMetric(title: "KÂR FAKTÖRÜ", value: data.isEmpty ? "—" : Format.factor(p))
+                    kpiDivider
                     TerminalMetric(title: "ÖRNEKLEM", value: "n = \(p.count)")
-                }.padding(.vertical, 20)
-                    .overlay(alignment: .top) { Rectangle().fill(Palette.line).frame(height: 1) }
-                    .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
+                }
+                .padding(.horizontal, 22).padding(.vertical, 18)
+                .background(Palette.panel.opacity(0.65), in: RoundedRectangle(cornerRadius: 15))
+                .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(Palette.line.opacity(0.85), lineWidth: 1))
+                .overlay(alignment: .top) {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(LinearGradient(colors: [Palette.mint.opacity(0.28), Palette.specular.opacity(0.03)], startPoint: .leading, endPoint: .trailing))
+                        .frame(height: 1)
+                        .padding(.horizontal, 18)
+                }
+                .edgeEntrance(delay: 0.03)
                 ViewThatFits(in: .horizontal) {
                     HStack { periodPicker; Spacer(); unitPicker }
                     VStack(alignment: .leading) { periodPicker; unitPicker }
@@ -55,10 +67,10 @@ struct DashboardView: View {
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 24) {
                             flagship(p, curve: curve).frame(minWidth: 510)
-                            processRail(p).frame(width: 220)
+                            processRail(p).frame(width: 240)
                         }
                         VStack(spacing: 24) { flagship(p, curve: curve); processRail(p) }
-                    }
+                    }.edgeEntrance(delay: 0.07)
                     ForEach(store.workspace.widgets.filter { !store.workspace.hiddenWidgets.contains($0) }, id: \.self) { widget in
                         switch widget {
                         case "Risk & R":
@@ -120,28 +132,63 @@ struct DashboardView: View {
         }
         .shadow(color: Color.black.opacity(0.06), radius: 14, x: 0, y: 6)
     }
+    private var kpiDivider: some View {
+        Rectangle().fill(Palette.line.opacity(0.65)).frame(width: 1, height: 34).padding(.horizontal, 16)
+    }
     private func processRail(_ p: Performance) -> some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("SÜREÇ / DİSİPLİN").font(EdgeType.eyebrow).tracking(1.2).foregroundStyle(Palette.muted)
-            HStack(alignment: .firstTextBaseline) {
-                Text(Format.number(p.executionScore, digits: 0)).font(.system(size: 48, weight: .light, design: .rounded)).monospacedDigit()
-                Text("/ 100").font(.caption).foregroundStyle(Palette.muted)
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text("SÜREÇ / DİSİPLİN").font(EdgeType.eyebrow).tracking(1.4).foregroundStyle(Palette.muted)
+                Spacer()
+                Badge(text: Format.percent(p.compliance), color: p.compliance >= 80 ? Palette.mint : Palette.amber)
             }
-            ProgressView(value: p.executionScore, total: 100).tint(Palette.mint)
-            HStack { Text("Plana uyum"); Spacer(); Text(Format.percent(p.compliance)).foregroundStyle(p.compliance >= 80 ? Palette.mint : Palette.amber) }.font(.caption)
-            Divider()
-            ForEach([Classification.validWinner, .validLoser, .invalidWinner, .invalidLoser, .breakeven], id: \.self) { type in
-                HStack {
-                    Circle().fill(Palette.classification(type)).frame(width: 5, height: 5)
-                    Text(L10n.text(type.rawValue)).font(.system(size: 10))
-                    Spacer()
-                    Text(data.filter { $0.classification == type }.count.description).font(.system(size: 12, design: .monospaced))
+            HStack {
+                Spacer()
+                ExecutionScoreRing(score: p.executionScore, size: 122, lineWidth: 8.5)
+                Spacer()
+            }.padding(.vertical, 2)
+            HStack {
+                Text("Plana uyum").foregroundStyle(Palette.muted)
+                Spacer()
+                Text(Format.percent(p.compliance))
+                    .fontWeight(.semibold).monospacedDigit()
+                    .foregroundStyle(p.compliance >= 80 ? Palette.mint : Palette.amber)
+            }.font(.caption)
+            Rectangle().fill(Palette.line.opacity(0.7)).frame(height: 1)
+            VStack(spacing: 8) {
+                ForEach([Classification.validWinner, .validLoser, .invalidWinner, .invalidLoser, .breakeven], id: \.self) { type in
+                    let count = data.filter { $0.classification == type }.count
+                    HStack(spacing: 8) {
+                        Circle().fill(Palette.classification(type)).frame(width: 6, height: 6)
+                        Text(L10n.text(type.rawValue)).font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.ink.opacity(0.9))
+                        Spacer()
+                        Text(count.description).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundStyle(count > 0 ? Palette.ink : Palette.muted.opacity(0.5))
+                    }
                 }
             }
-            Divider()
-            Text("A+ kazanma oranı").font(.caption).foregroundStyle(Palette.muted)
-            Text(p.aPlusWinRate.map(Format.percent) ?? "—").font(.title2).monospacedDigit()
-        }.padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
+            Rectangle().fill(Palette.line.opacity(0.7)).frame(height: 1)
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("A+ kazanma oranı").font(.caption).foregroundStyle(Palette.muted)
+                    Text(p.aPlusWinRate.map(Format.percent) ?? "—")
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(Palette.mint)
+                }
+                Spacer()
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.panel, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Palette.line.opacity(0.85), lineWidth: 1))
+        .overlay(alignment: .top) {
+            RoundedRectangle(cornerRadius: 1)
+                .fill(LinearGradient(colors: [Palette.specular.opacity(0.08), .clear], startPoint: .leading, endPoint: .trailing))
+                .frame(height: 1)
+                .padding(.horizontal, 16)
+        }
+        .shadow(color: Color.black.opacity(0.06), radius: 14, x: 0, y: 6)
     }
 }
 struct DashboardLayoutEditor: View {
