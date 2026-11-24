@@ -15,19 +15,37 @@ struct TradeRows: View {
             }.font(.system(size: 9, weight: .semibold)).tracking(0.8).foregroundStyle(Palette.muted).padding(.horizontal, 12).padding(.bottom, 14)
             ForEach(Array(trades.enumerated()), id: \.element.id) { index, trade in
                 Button { openTrade(trade) } label: {
+                    let isLong = trade.direction == "Long"
+                    let dirColor = isLong ? Palette.mint : Palette.red
                     HStack(spacing: 12) {
-                        Image(systemName: trade.direction == "Long" ? "arrow.up.right" : "arrow.down.right")
-                            .font(.system(size: 14, weight: .medium)).foregroundStyle(Palette.blue)
-                            .frame(width: 36, height: 38).background(Palette.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-                        VStack(alignment: .leading, spacing: 7) {
+                        Image(systemName: isLong ? "arrow.up.right" : "arrow.down.right")
+                            .font(.system(size: 14, weight: .semibold)).foregroundStyle(dirColor)
+                            .frame(width: 36, height: 38)
+                            .background(dirColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(dirColor.opacity(0.22), lineWidth: 1))
+                        VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 8) {
                                 Text(verbatim: trade.instrument).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                                Text(L10n.text(trade.direction.uppercased())).font(.system(size: 9, weight: .medium)).foregroundStyle(Palette.muted)
+                                Text(verbatim: trade.direction.uppercased())
+                                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(dirColor)
+                                    .padding(.horizontal, 5).padding(.vertical, 2)
+                                    .background(dirColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+                                if trade.qt.enabled {
+                                    let qtBadge = [trade.qt.profile, trade.qt.dailyQuarter].filter { !$0.isEmpty }.joined(separator: " ")
+                                    Text(verbatim: qtBadge.isEmpty ? "QT" : qtBadge)
+                                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(Palette.blue)
+                                        .padding(.horizontal, 5).padding(.vertical, 2)
+                                        .background(Palette.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+                                }
                                 Spacer(minLength: 4)
                                 Text(Format.date(trade.date, calendar: store.preferences.calendar)).font(.system(size: 10)).foregroundStyle(Palette.muted).lineLimit(1)
                             }
-                            Text((trade.setupID == nil ? L10n.text(trade.setupName) : trade.setupName) + " · " + L10n.text(trade.session))
-                                .font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(1).help(trade.setupName + " · " + L10n.text(trade.session))
+                            let setupLabel = trade.setupID == nil ? L10n.text(trade.setupName) : trade.setupName
+                            let subtitleText = trade.session.isEmpty ? setupLabel : (setupLabel + " · " + L10n.text(trade.session))
+                            Text(subtitleText)
+                                .font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(1).help(subtitleText)
                         }.frame(maxWidth: .infinity, alignment: .leading)
                         Badge(text: trade.classification.rawValue, color: Palette.classification(trade.classification)).frame(width: 150)
                         Text(Format.money(trade.netPnL, currency: store.currency(for: trade.id))).font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundStyle(Palette.outcome(trade.netPnL)).frame(width: 110, alignment: .trailing).lineLimit(1).minimumScaleFactor(0.75)
@@ -120,7 +138,7 @@ struct TradesView: View {
     }
     var body: some View {
         let sorted = visible
-        let performance = AnalyticsEngine.performance(sorted)
+        let performance = (filter.isEmpty && outcome == "Tümü") ? store.scopedPerformance : AnalyticsEngine.performance(sorted)
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 HStack(alignment: .top, spacing: 20) {

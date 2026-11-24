@@ -86,7 +86,7 @@ struct QuantView: View {
 
     // MARK: - Key Risk Metrics Ribbon
     private var keyRiskMetricsRibbon: some View {
-        let p = AnalyticsEngine.performance(trades)
+        let p = store.scopedPerformance
         return HStack(spacing: 20) {
             TerminalMetric(
                 title: "EN UZUN TOPARLANMA",
@@ -368,7 +368,7 @@ struct QuantView: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Drawdown Derinlik Eğrisi").font(.caption).foregroundStyle(Palette.muted)
-                    EquityChart(points: AnalyticsEngine.curve(trades), mode: .drawdown, height: 200)
+                    EquityChart(points: store.scopedCurve, mode: .drawdown, height: 200)
                 }
             }
         }

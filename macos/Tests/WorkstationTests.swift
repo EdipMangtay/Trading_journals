@@ -120,4 +120,104 @@ final class WorkstationTests: XCTestCase {
         XCTAssertEqual(legacyDecoded.qt.trueOpenAnchor, "TDO")
         XCTAssertEqual(legacyDecoded.qt.trueOpenLocation, "Discount")
     }
+    @MainActor func testFullEndToEndWorkspaceAndPlaybookCRUD() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("CRUD.store")
+        let store = try JournalStore(demo: false, storageURL: url)
+
+        // 1. Create Setup + Playbook
+        let setupID = UUID()
+        try store.commit {
+            let setup = Setup(id: setupID, name: "NY AM QT", summary: "AMDX Q3 CISD")
+            store.context.insert(setup)
+            let book = Playbook()
+            book.conditions = "HTF DOL + Q2 Sweep"
+            book.entryRules = "1M CISD + FVG"
+            book.idealImagesData = try JSONEncoder().encode([ScreenshotDraft]())
+            store.context.insert(book)
+            setup.playbook = book
+        }
+        XCTAssertEqual(store.setups.count, 1)
+        XCTAssertEqual(store.setups[0].playbook?.entryRules, "1M CISD + FVG")
+
+        // 2. Create Trade linked to Setup via saveBatch
+        var t1 = TradeRecord(); t1.instrument = "NQ"; t1.grossPnL = 400; t1.rMultiple = 2.0; t1.setupID = setupID; t1.setupName = "NY AM QT"
+        var t2 = TradeRecord(); t2.instrument = "ES"; t2.grossPnL = -200; t2.rMultiple = -1.0; t2.setupID = setupID; t2.setupName = "NY AM QT"
+        try store.saveBatch([t1, t2], accountID: TradingAccount.legacyID)
+        XCTAssertEqual(store.trades.count, 2)
+        XCTAssertEqual(store.scopedPerformance.netPnL, 200)
+
+        // 3. Edit existing Setup without double-inserting and verify linked trades rename
+        try store.commit {
+            let existing = try XCTUnwrap(store.setups.first { $0.id == setupID })
+            existing.name = "NY AM QT v2"
+            existing.playbook?.conditions = "Updated conditions"
+            for trade in store.trades where trade.setupID == setupID {
+                var changed = trade; changed.setupName = "NY AM QT v2"; try store.upsert(changed)
+            }
+        }
+        XCTAssertEqual(store.setups.count, 1)
+        XCTAssertEqual(store.setups[0].name, "NY AM QT v2")
+        XCTAssertTrue(store.trades.allSatisfy { $0.setupName == "NY AM QT v2" })
+
+        // 4. Create & Edit Review without double-insert
+        let reviewID = UUID()
+        try store.commit {
+            let review = Review(id: reviewID, period: "Weekly", date: Date())
+            review.adjustment = "Wait for Q3"
+            store.context.insert(review)
+        }
+        try store.commit {
+            let review = try XCTUnwrap(store.reviews.first { $0.id == reviewID })
+            review.adjustment = "Wait for Q3 + SSMT"
+        }
+        XCTAssertEqual(store.reviews.count, 1)
+        XCTAssertEqual(store.reviews[0].adjustment, "Wait for Q3 + SSMT")
+
+        // 5. Daily Plan, Checklist Template, Research Preset, and Trade Supplement
+        var plan = DailyPlan(accountID: TradingAccount.legacyID); plan.scenarios = "Bearish below TDO"
+        let tmpl = ChecklistTemplate(name: "QT Check", items: [ChecklistAnswer(label: "True Open", phase: "Öncesi")])
+        let preset = ResearchPreset(name: "NQ Only", filter: TradeFilter(query: "NQ"))
+        var supp = TradeSupplement(); supp.fills = [ExecutionFill(side: "Entry", quantity: 1, price: 20000), ExecutionFill(side: "Exit", quantity: 1, price: 20020)]
+        try store.updateWorkspace { ws in
+            ws.plans.append(plan); ws.templates.append(tmpl); ws.presets.append(preset); ws.supplements[t1.id] = supp
+        }
+
+        // 6. Reopen from disk and verify everything survived
+        let reopened = try JournalStore(demo: false, storageURL: url)
+        XCTAssertEqual(reopened.setups.count, 1)
+        XCTAssertEqual(reopened.setups[0].name, "NY AM QT v2")
+        XCTAssertEqual(reopened.setups[0].playbook?.conditions, "Updated conditions")
+        XCTAssertEqual(reopened.trades.count, 2)
+        XCTAssertEqual(reopened.reviews.first?.adjustment, "Wait for Q3 + SSMT")
+        XCTAssertEqual(reopened.workspace.plans.count, 1)
+        XCTAssertEqual(reopened.workspace.templates.count, 1)
+        XCTAssertEqual(reopened.workspace.presets.count, 1)
+        XCTAssertEqual(reopened.workspace.supplements[t1.id]?.fills.count, 2)
+
+        // 7. Delete setup cleanly unassigns linked trades
+        try reopened.deleteSetup(reopened.setups[0])
+        XCTAssertEqual(reopened.setups.count, 0)
+        XCTAssertTrue(reopened.trades.allSatisfy { $0.setupID == nil && $0.setupName == "Unassigned" })
+
+        // 8. Flexible minimal trade with deselected optional fields validates, saves, and groups cleanly
+        var minimal = TradeRecord()
+        minimal.instrument = "NQ"
+        minimal.session = ""
+        minimal.grade = ""
+        minimal.biasRelation = ""
+        minimal.newsDriver = ""
+        minimal.entryTimeframe = ""
+        minimal.rMultiple = nil
+        minimal.riskDollars = nil
+        minimal.riskPercent = nil
+        minimal.qt.enabled = false
+        XCTAssertNil(minimal.validationError)
+        try reopened.save(minimal, screenshots: [])
+        XCTAssertEqual(AnalyticsEngine.groups([minimal], by: .session, calendar: .current).first?.name, "Unspecified")
+        XCTAssertEqual(AnalyticsEngine.groups([minimal], by: .grade, calendar: .current).first?.name, "Unspecified")
+        XCTAssertEqual(AnalyticsEngine.groups([minimal], by: .timeframe, calendar: .current).first?.name, "Unspecified")
+    }
 }

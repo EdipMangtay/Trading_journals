@@ -56,7 +56,8 @@ struct CalendarView: View {
                             if index < offset { Color.clear.frame(height: 108).accessibilityHidden(true) }
                             else {
                                 let date = calendar.date(byAdding: .day, value: index - offset, to: interval.start)!
-                                let dayTrades = buckets[date] ?? [], stats = AnalyticsEngine.performance(dayTrades)
+                                let dayTrades = buckets[date] ?? []
+                                let stats = dayTrades.isEmpty ? Performance() : AnalyticsEngine.performance(dayTrades)
                                 let number = showR ? stats.totalR : stats.netPnL
                                 Button {
                                     selectedDate = date
@@ -65,7 +66,7 @@ struct CalendarView: View {
                                     CalendarDayContent(day: index - offset + 1, today: calendar.isDateInToday(date), hasTrades: !dayTrades.isEmpty, count: stats.count, value: showR ? (stats.rCount == 0 ? "—" : Format.r(number)) : Format.money(number, currency: store.accountCurrency), color: Palette.outcome(number))
                                 }
                                 .buttonStyle(CalendarDayButtonStyle(selected: selectedDate == date, color: dayTrades.isEmpty ? Palette.muted : Palette.outcome(number), hasTrades: !dayTrades.isEmpty))
-                                .accessibilityLabel("\(Format.date(date, calendar: calendar)), \(dayTrades.count) işlem, \(showR ? (stats.rCount == 0 ? "R kaydedilmedi" : Format.r(stats.totalR)) : Format.money(stats.netPnL, currency: store.preferences.currency))")
+                                .accessibilityLabel("\(Format.date(date, calendar: calendar)), \(dayTrades.count) işlem, \(showR ? (stats.rCount == 0 ? "R kaydedilmedi" : Format.r(stats.totalR)) : Format.money(stats.netPnL, currency: store.accountCurrency))")
                                 .accessibilityAddTraits(selectedDate == date ? .isSelected : [])
                             }
                         }

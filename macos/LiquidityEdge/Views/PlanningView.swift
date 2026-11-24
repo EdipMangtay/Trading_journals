@@ -321,6 +321,8 @@ struct PlanningView: View {
     }
 
     private func savePlan() {
+        currentPlan.accountID = store.selectedAccount.id
+        currentPlan.date = selectedDate
         do {
             try store.updateWorkspace { ws in
                 ws.plans.removeAll { $0.id == currentPlan.id || (store.preferences.calendar.isDate($0.date, inSameDayAs: currentPlan.date) && $0.accountID == currentPlan.accountID) }
@@ -408,32 +410,39 @@ struct PlanningView: View {
             Text("Yeni Kontrol Şablonu").font(.title2.weight(.bold))
             TextField("Şablon Adı (Örn: London Scalp Checklist)", text: $newTemplateName)
                 .textFieldStyle(EdgeTextFieldStyle())
+                .onSubmit { createNewTemplate() }
 
             HStack {
                 Spacer()
-                Button("İptal") { showNewTemplate = false }.keyboardShortcut(.cancelAction)
-                Button("Oluştur") {
-                    let clean = newTemplateName.trimmingCharacters(in: .whitespaces)
-                    guard !clean.isEmpty else { return }
-                    let tmpl = ChecklistTemplate(
-                        name: clean,
-                        items: [
-                            ChecklistAnswer(label: "Kurulum teyidi hazır", phase: "Öncesi"),
-                            ChecklistAnswer(label: "Risk %1 altında", phase: "Öncesi"),
-                            ChecklistAnswer(label: "Plana tam uyuldu", phase: "Sonrası")
-                        ]
-                    )
-                    saveTemplate(tmpl)
-                    newTemplateName = ""
-                    showNewTemplate = false
-                }
-                .buttonStyle(EdgeButtonStyle())
-                .disabled(newTemplateName.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button("İptal") { showNewTemplate = false }
+                    .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                    .keyboardShortcut(.cancelAction)
+                Button("Oluştur") { createNewTemplate() }
+                    .buttonStyle(EdgeButtonStyle(compact: true))
+                    .disabled(newTemplateName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
         .padding(24)
         .frame(width: 440)
         .background(Palette.canvas)
+        .foregroundStyle(Palette.ink)
+        .tint(Palette.mint)
+    }
+
+    private func createNewTemplate() {
+        let clean = newTemplateName.trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty else { return }
+        let tmpl = ChecklistTemplate(
+            name: clean,
+            items: [
+                ChecklistAnswer(label: "Kurulum teyidi hazır", phase: "Öncesi"),
+                ChecklistAnswer(label: "Risk %1 altında", phase: "Öncesi"),
+                ChecklistAnswer(label: "Plana tam uyuldu", phase: "Sonrası")
+            ]
+        )
+        saveTemplate(tmpl)
+        newTemplateName = ""
+        showNewTemplate = false
     }
 }
 
@@ -450,12 +459,19 @@ struct ChecklistTemplateEditor: View {
             HStack {
                 Text("Şablonu Düzenle").font(.title2.weight(.bold))
                 Spacer()
-                Button("İptal") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("İptal") { dismiss() }
+                    .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                    .keyboardShortcut(.cancelAction)
                 Button("Kaydet") {
+                    let cleanName = template.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !cleanName.isEmpty else { return }
+                    template.name = cleanName
                     onSave(template)
                     dismiss()
                 }
-                .buttonStyle(EdgeButtonStyle())
+                .buttonStyle(EdgeButtonStyle(compact: true))
+                .disabled(template.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .keyboardShortcut("s", modifiers: .command)
             }
 
             TextField("Şablon Adı", text: $template.name)
@@ -468,20 +484,16 @@ struct ChecklistTemplateEditor: View {
             HStack(spacing: 12) {
                 TextField("Yeni madde (örn: Stop Loss belirlendi)", text: $newItemLabel)
                     .textFieldStyle(EdgeTextFieldStyle())
+                    .onSubmit { addItem() }
                 Picker("Aşama", selection: $newItemPhase) {
                     Text("Öncesi").tag("Öncesi")
                     Text("Sonrası").tag("Sonrası")
                 }
                 .frame(width: 110)
 
-                Button("Ekle") {
-                    let clean = newItemLabel.trimmingCharacters(in: .whitespaces)
-                    guard !clean.isEmpty else { return }
-                    template.items.append(ChecklistAnswer(label: clean, phase: newItemPhase))
-                    newItemLabel = ""
-                }
-                .buttonStyle(EdgeButtonStyle(prominent: false))
-                .disabled(newItemLabel.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button("Ekle") { addItem() }
+                    .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                    .disabled(newItemLabel.trimmingCharacters(in: .whitespaces).isEmpty)
             }
 
             List {
@@ -490,6 +502,13 @@ struct ChecklistTemplateEditor: View {
                         Badge(text: item.phase, color: item.phase == "Öncesi" ? Palette.blue : Palette.mint)
                         Text(item.label)
                         Spacer()
+                        Button {
+                            template.items.removeAll { $0.id == item.id }
+                        } label: {
+                            Image(systemName: "trash").font(.caption).foregroundStyle(Palette.red)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Maddeyi sil")
                     }
                 }
                 .onDelete { idx in
@@ -502,6 +521,15 @@ struct ChecklistTemplateEditor: View {
         .padding(24)
         .frame(width: 550, height: 500)
         .background(Palette.canvas)
+        .foregroundStyle(Palette.ink)
+        .tint(Palette.mint)
+    }
+
+    private func addItem() {
+        let clean = newItemLabel.trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty else { return }
+        template.items.append(ChecklistAnswer(label: clean, phase: newItemPhase))
+        newItemLabel = ""
     }
 }
 

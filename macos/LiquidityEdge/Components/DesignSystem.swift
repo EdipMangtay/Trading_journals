@@ -168,11 +168,13 @@ struct EdgeTextFieldStyle: TextFieldStyle {
         @State private var hovered = false
         var body: some View {
             content.font(.system(size: 12)).foregroundStyle(isEnabled ? Palette.ink : Palette.muted)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, compact ? 9 : 12).padding(.vertical, compact ? 7 : 10)
                 .frame(minHeight: compact ? 30 : 37)
                 .focused($focused)
                 .background(Palette.field.opacity(isEnabled ? 1 : 0.5), in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(focused ? Palette.mint.opacity(0.8) : hovered && isEnabled ? Palette.muted.opacity(0.35) : Palette.line, lineWidth: focused ? 1.5 : 1))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
                 .onHover { hovered = $0 }
                 .animation(animationsEnabled && !reduceMotion ? .easeOut(duration: 0.12) : nil, value: focused)
         }

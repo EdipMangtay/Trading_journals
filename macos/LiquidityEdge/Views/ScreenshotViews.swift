@@ -186,7 +186,7 @@ struct ScreenshotLibraryView: View {
     @State private var category = "All"
     @State private var selected: ScreenshotDraft?
     @State private var selectedTradeID: UUID?
-    private var items: [(TradeRecord, TradeScreenshot)] { store.trades.flatMap { trade in (store.model(trade.id)?.screenshots ?? []).filter { category == "All" || $0.category == category }.map { (trade, $0) } } }
+    private var items: [(TradeRecord, TradeScreenshot)] { store.scopedTrades.flatMap { trade in (store.model(trade.id)?.screenshots ?? []).filter { category == "All" || $0.category == category }.map { (trade, $0) } } }
     var body: some View {
         let visibleItems = items
         ScrollView { VStack(alignment: .leading, spacing: 24) {

@@ -250,13 +250,14 @@ struct CSVImportView: View {
                             .padding(.vertical, 8)
                             Divider()
 
-                            ForEach(parsedTrades.prefix(15)) { t in
+                        ForEach(parsedTrades.prefix(15)) { t in
+                                let targetCurrency = store.workspace.accounts.first(where: { $0.id == targetAccountID })?.currency ?? store.accountCurrency
                                 HStack {
                                     Text(Format.date(t.date, calendar: store.preferences.calendar, time: true))
                                         .font(.caption).frame(width: 140, alignment: .leading)
                                     Text(t.instrument).font(.caption.weight(.medium)).frame(width: 90, alignment: .leading)
                                     Badge(text: t.direction).frame(width: 70, alignment: .leading)
-                                    Text(Format.money(t.grossPnL, currency: store.accountCurrency))
+                                    Text(Format.money(t.grossPnL, currency: targetCurrency))
                                         .font(.caption.monospacedDigit())
                                         .foregroundStyle(Palette.outcome(t.grossPnL))
                                         .frame(width: 100, alignment: .trailing)
@@ -300,11 +301,13 @@ struct CSVImportView: View {
                 .font(.caption)
                 .foregroundStyle(Palette.muted)
 
-            Button("Günlüğe Dön") {
+            Button("Yeni Aktarım Başlat") {
                 step = .fileSelection
                 rawCSVText = ""
                 selectedFileURL = nil
                 parsedTrades = []
+                validationErrors = []
+                mappings = [:]
             }
             .buttonStyle(EdgeButtonStyle())
         }
@@ -329,13 +332,70 @@ struct CSVImportView: View {
         }
     }
 
+    private func splitCSVLine(_ line: String, delimiter: Character) -> [String] {
+        var fields: [String] = []
+        var current = ""
+        var inQuotes = false
+        let chars = Array(line)
+        var i = 0
+        while i < chars.count {
+            let ch = chars[i]
+            if ch == "\"" {
+                if inQuotes, i + 1 < chars.count, chars[i + 1] == "\"" {
+                    current.append("\"")
+                    i += 2
+                    continue
+                }
+                inQuotes.toggle()
+            } else if ch == delimiter && !inQuotes {
+                fields.append(current.trimmingCharacters(in: CharacterSet(charactersIn: " \r\t")))
+                current = ""
+            } else {
+                current.append(ch)
+            }
+            i += 1
+        }
+        fields.append(current.trimmingCharacters(in: CharacterSet(charactersIn: " \r\t")))
+        return fields
+    }
+
+    private func parseNumber(_ raw: String) -> Double? {
+        var clean = raw
+            .replacingOccurrences(of: "$", with: "")
+            .replacingOccurrences(of: "€", with: "")
+            .replacingOccurrences(of: "£", with: "")
+            .replacingOccurrences(of: "₺", with: "")
+            .replacingOccurrences(of: "R", with: "")
+            .replacingOccurrences(of: "r", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return nil }
+        if clean.contains(",") && clean.contains(".") {
+            // 1,250.50 vs 1.250,50
+            if let lastComma = clean.lastIndex(of: ","), let lastDot = clean.lastIndex(of: "."), lastComma > lastDot {
+                clean = clean.replacingOccurrences(of: ".", with: "").replacingOccurrences(of: ",", with: ".")
+            } else {
+                clean = clean.replacingOccurrences(of: ",", with: "")
+            }
+        } else if clean.contains(",") {
+            let parts = clean.split(separator: ",")
+            if parts.count == 2 && parts[1].count <= 2 {
+                clean = clean.replacingOccurrences(of: ",", with: ".")
+            } else {
+                clean = clean.replacingOccurrences(of: ",", with: "")
+            }
+        }
+        return Double(clean)
+    }
+
     private func parseHeadersAndAdvance() {
-        let lines = rawCSVText.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let cleaned = rawCSVText.replacingOccurrences(of: "\u{FEFF}", with: "")
+        let lines = cleaned.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard let first = lines.first else { return }
 
         // Delimiter detection
-        let delimiter = first.contains(";") ? ";" : first.contains("\t") ? "\t" : ","
-        detectedHeaders = first.components(separatedBy: delimiter).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"' \r\t")) }
+        let delimiter: Character = first.contains(";") ? ";" : first.contains("\t") ? "\t" : ","
+        detectedHeaders = splitCSVLine(first, delimiter: delimiter)
+        mappings = [:]
 
         // Pre-fill smart guesses
         for (key, _, _) in targetFields {
@@ -345,16 +405,16 @@ struct CSVImportView: View {
                 case "date": return lower.contains("date") || lower.contains("time") || lower.contains("tarih")
                 case "instrument": return lower.contains("symbol") || lower.contains("instrument") || lower.contains("ticker") || lower.contains("sembol")
                 case "direction": return lower.contains("side") || lower.contains("direction") || lower.contains("type") || lower.contains("yön")
-                case "grossPnL": return lower.contains("gross") || lower.contains("pnl") || lower.contains("profit") || lower.contains("kâr")
+                case "grossPnL": return lower.contains("gross") || lower == "pnl" || lower.contains("profit") || lower.contains("kâr")
                 case "fees": return lower.contains("fee") || lower.contains("commission") || lower.contains("komisyon")
-                case "netPnL": return lower == "net" || lower.contains("net pnl") || lower.contains("netpnl")
+                case "netPnL": return lower == "net" || lower.contains("net pnl") || lower.contains("netpnl") || lower.contains("net k")
                 case "rMultiple": return lower.contains("r multiple") || lower == "r" || lower.contains("rmultiple")
                 case "setupName": return lower.contains("setup") || lower.contains("strategy") || lower.contains("model")
                 case "session": return lower.contains("session") || lower.contains("seans")
                 case "entryPrice": return lower.contains("entry") || lower.contains("open price")
                 case "exitPrice": return lower.contains("exit") || lower.contains("close price")
-                case "stopLoss": return lower.contains("stop") || lower.contains("sl")
-                case "takeProfit": return lower.contains("target") || lower.contains("tp")
+                case "stopLoss": return lower.contains("stop") || lower == "sl"
+                case "takeProfit": return lower.contains("target") || lower == "tp" || lower.contains("take profit")
                 case "positionSize": return lower.contains("qty") || lower.contains("quantity") || lower.contains("size") || lower.contains("kontrat")
                 case "riskDollars": return lower.contains("risk $") || lower.contains("risk dollar") || lower == "risk"
                 case "thesis": return lower.contains("notes") || lower.contains("thesis") || lower.contains("not")
@@ -370,22 +430,34 @@ struct CSVImportView: View {
     }
 
     private func buildPreviewTrades() {
-        let lines = rawCSVText.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        guard lines.count > 1 else { return }
+        let cleaned = rawCSVText.replacingOccurrences(of: "\u{FEFF}", with: "")
+        let lines = cleaned.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard lines.count > 1 else {
+            validationErrors = ["CSV en az bir başlık satırı ve bir veri satırı içermelidir."]
+            parsedTrades = []
+            duplicateCount = 0
+            step = .previewAndImport
+            return
+        }
 
         let first = lines[0]
-        let delimiter = first.contains(";") ? ";" : first.contains("\t") ? "\t" : ","
-        let headers = first.components(separatedBy: delimiter).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"' \r\t")) }
+        let delimiter: Character = first.contains(";") ? ";" : first.contains("\t") ? "\t" : ","
+        let headers = splitCSVLine(first, delimiter: delimiter)
 
         var result: [TradeRecord] = []
         var errors: [String] = []
 
         let dateFormatter = DateFormatter()
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
         let formats = [
             "yyyy-MM-dd HH:mm:ss",
             "yyyy-MM-dd'T'HH:mm:ssZ",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd HH:mm",
             "yyyy-MM-dd",
+            "dd.MM.yyyy HH:mm:ss",
             "dd.MM.yyyy HH:mm",
+            "dd.MM.yyyy",
             "dd/MM/yyyy HH:mm",
             "MM/dd/yyyy HH:mm:ss",
             "MM/dd/yyyy"
@@ -393,6 +465,7 @@ struct CSVImportView: View {
 
         func parseDate(_ str: String) -> Date? {
             let clean = str.trimmingCharacters(in: CharacterSet(charactersIn: "\"' "))
+            if let iso = ISO8601DateFormatter().date(from: clean) { return iso }
             for fmt in formats {
                 dateFormatter.dateFormat = fmt
                 if let d = dateFormatter.date(from: clean) { return d }
@@ -403,76 +476,88 @@ struct CSVImportView: View {
             return nil
         }
 
+        func cell(_ key: String, in cols: [String]) -> String? {
+            guard let header = mappings[key], let colIdx = headers.firstIndex(of: header), colIdx < cols.count else { return nil }
+            return cols[colIdx]
+        }
+
         for (idx, line) in lines.dropFirst().enumerated() {
-            let cols = line.components(separatedBy: delimiter).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"' \r\t")) }
-            guard cols.count == headers.count else { continue }
+            let cols = splitCSVLine(line, delimiter: delimiter)
+            guard cols.count == headers.count else {
+                errors.append("Satır \(idx + 2): Sütun sayısı başlıkla eşleşmiyor (\(cols.count) / \(headers.count))")
+                continue
+            }
 
             var record = TradeRecord()
             var valid = true
 
-            // Date
-            if let dateHeader = mappings["date"], let colIdx = headers.firstIndex(of: dateHeader), colIdx < cols.count {
-                if let d = parseDate(cols[colIdx]) {
-                    record.date = d
-                } else {
+            if let dateStr = cell("date", in: cols) {
+                if let d = parseDate(dateStr) { record.date = d }
+                else {
                     valid = false
-                    errors.append("Satır \(idx + 2): Tarih ayrıştırılamadı '\(cols[colIdx])'")
+                    errors.append("Satır \(idx + 2): Tarih ayrıştırılamadı '\(dateStr)'")
                 }
             }
 
-            // Instrument
-            if let instHeader = mappings["instrument"], let colIdx = headers.firstIndex(of: instHeader), colIdx < cols.count {
-                let sym = cols[colIdx].trimmingCharacters(in: .whitespaces)
+            if let symStr = cell("instrument", in: cols) {
+                let sym = symStr.trimmingCharacters(in: .whitespaces)
                 record.instrument = sym.isEmpty ? "NQ" : sym.uppercased()
             }
 
-            // Direction
-            if let dirHeader = mappings["direction"], let colIdx = headers.firstIndex(of: dirHeader), colIdx < cols.count {
-                let dir = cols[colIdx].lowercased()
-                record.direction = (dir.contains("short") || dir.contains("sell") || dir == "s") ? "Short" : "Long"
+            if let dirStr = cell("direction", in: cols) {
+                let dir = dirStr.lowercased()
+                record.direction = (dir.contains("short") || dir.contains("sell") || dir.contains("sat") || dir == "s") ? "Short" : "Long"
             }
 
-            // Gross P&L
-            if let grossHeader = mappings["grossPnL"], let colIdx = headers.firstIndex(of: grossHeader), colIdx < cols.count {
-                let clean = cols[colIdx].replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces)
-                record.grossPnL = Double(clean) ?? 0.0
+            if let feeStr = cell("fees", in: cols), let feeVal = parseNumber(feeStr) {
+                record.fees = abs(feeVal)
             }
 
-            // Fees
-            if let feeHeader = mappings["fees"], let colIdx = headers.firstIndex(of: feeHeader), colIdx < cols.count {
-                let clean = cols[colIdx].replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces)
-                record.fees = abs(Double(clean) ?? 0.0)
+            if let grossStr = cell("grossPnL", in: cols), let grossVal = parseNumber(grossStr) {
+                record.grossPnL = grossVal
+            } else if let netStr = cell("netPnL", in: cols), let netVal = parseNumber(netStr) {
+                record.grossPnL = netVal + record.fees
             }
 
-            // R
-            if let rHeader = mappings["rMultiple"], let colIdx = headers.firstIndex(of: rHeader), colIdx < cols.count {
-                let clean = cols[colIdx].replacingOccurrences(of: "R", with: "").trimmingCharacters(in: .whitespaces)
-                record.rMultiple = Double(clean)
+            if let rStr = cell("rMultiple", in: cols) { record.rMultiple = parseNumber(rStr) }
+            if let entryStr = cell("entryPrice", in: cols) { record.entryPrice = parseNumber(entryStr) }
+            if let exitStr = cell("exitPrice", in: cols) { record.exitPrice = parseNumber(exitStr) }
+            if let slStr = cell("stopLoss", in: cols) { record.stopLoss = parseNumber(slStr) }
+            if let tpStr = cell("takeProfit", in: cols) { record.takeProfit = parseNumber(tpStr) }
+            if let sizeStr = cell("positionSize", in: cols), let sz = parseNumber(sizeStr), sz >= 0 { record.positionSize = sz }
+            if let riskStr = cell("riskDollars", in: cols), let rk = parseNumber(riskStr), rk >= 0 { record.riskDollars = rk }
+
+            if let setupStr = cell("setupName", in: cols) {
+                let s = setupStr.trimmingCharacters(in: .whitespaces)
+                if !s.isEmpty {
+                    if let matched = store.setups.first(where: { $0.name.caseInsensitiveCompare(s) == .orderedSame }) {
+                        record.setupID = matched.id
+                        record.setupName = matched.name
+                    } else {
+                        record.setupName = s
+                    }
+                }
             }
 
-            // Setup
-            if let sHeader = mappings["setupName"], let colIdx = headers.firstIndex(of: sHeader), colIdx < cols.count {
-                let s = cols[colIdx].trimmingCharacters(in: .whitespaces)
-                record.setupName = s.isEmpty ? "Unassigned" : s
+            if let sessStr = cell("session", in: cols) {
+                let s = sessStr.trimmingCharacters(in: .whitespaces)
+                if !s.isEmpty { record.session = s }
             }
 
-            // Session
-            if let sessHeader = mappings["session"], let colIdx = headers.firstIndex(of: sessHeader), colIdx < cols.count {
-                record.session = cols[colIdx]
-            }
+            if let thesisStr = cell("thesis", in: cols) { record.notes.thesis = thesisStr }
 
-            // Notes / Thesis
-            if let tHeader = mappings["thesis"], let colIdx = headers.firstIndex(of: tHeader), colIdx < cols.count {
-                record.notes.thesis = cols[colIdx]
-            }
-
-            // Tags
-            if let tagHeader = mappings["tags"], let colIdx = headers.firstIndex(of: tagHeader), colIdx < cols.count {
-                record.tags = cols[colIdx].components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            if let tagStr = cell("tags", in: cols) {
+                record.tags = tagStr.components(separatedBy: CharacterSet(charactersIn: ",;|"))
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
             }
 
             if valid {
-                result.append(record)
+                if let validationErr = record.validationError {
+                    errors.append("Satır \(idx + 2): \(L10n.text(validationErr))")
+                } else {
+                    result.append(record)
+                }
             }
         }
 
@@ -504,9 +589,7 @@ struct CSVImportView: View {
 
         do {
             try store.createRecoverySnapshot(reason: "before-csv-import")
-            for trade in toImport {
-                try store.save(trade, screenshots: [], accountID: targetAccountID)
-            }
+            try store.saveBatch(toImport, accountID: targetAccountID)
             importedCount = toImport.count
             step = .completed
         } catch {

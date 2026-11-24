@@ -78,7 +78,19 @@ struct SettingsView: View {
                 Label(L10n.text(message), systemImage: "checkmark.circle.fill").font(.system(size: 12)).foregroundStyle(Palette.mint).textSelection(.enabled)
                     .padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Palette.mint.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
             }
-            Panel(title: "LIQUIDITY EDGE / 1.0") { Text(L10n.text("Professional Trading Performance Journal\nBuilt around discipline, pattern recognition and execution quality.")).font(.callout).foregroundStyle(Palette.muted) }
+            Panel(title: "LIQUIDITY EDGE / v6.0", subtitle: "NATIVE MACOS · SWIFTUI & SWIFTDATA") {
+                HStack(alignment: .center, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(L10n.text("Professional Trading Performance Journal\nBuilt around discipline, pattern recognition and execution quality.")).font(.callout).foregroundStyle(Palette.muted)
+                    }
+                    Spacer(minLength: 12)
+                    HStack(spacing: 10) {
+                        Badge(text: "\(store.trades.count) işlem", color: Palette.mint)
+                        Badge(text: "\(store.workspace.accounts.count) hesap", color: Palette.blue)
+                        Badge(text: "\(store.setups.count) playbook", color: Palette.muted)
+                    }
+                }
+            }
         }.pagePadding() }
         .onAppear { if !loaded { preferences = store.preferences; loaded = true } }
         .fileImporter(isPresented: $importing, allowedContentTypes: csvImport ? [.commaSeparatedText, .plainText] : [.json], allowsMultipleSelection: false) { result in
@@ -140,16 +152,13 @@ struct SettingsView: View {
                             Text(L10n.text(session)).font(.system(size: 12, weight: .medium)).lineLimit(2)
                             TextField(L10n.text("Session hours"), text: Binding(get: { preferences.sessionHours[session] ?? "" }, set: { preferences.sessionHours[session] = $0 })).textFieldStyle(EdgeTextFieldStyle()).accessibilityLabel(L10n.text(session) + " · " + L10n.text("Session hours"))
                         }
-                        Button { preferences.sessions.removeAll { $0 == session }; preferences.sessionHours.removeValue(forKey: session) } label: { Image(systemName: "minus.circle").foregroundStyle(Palette.muted) }.buttonStyle(EdgeButtonStyle(prominent: false, compact: true)).help(L10n.text(session) + " seansını kaldır")
+                        Button { preferences.sessions.removeAll { $0 == session }; preferences.sessionHours.removeValue(forKey: session) } label: { Image(systemName: "minus.circle").foregroundStyle(Palette.muted) }.buttonStyle(EdgeButtonStyle(prominent: false, compact: true)).disabled(preferences.sessions.count <= 1).help(L10n.text(session) + " seansını kaldır")
                     }
                 }
             }
             HStack(spacing: 10) {
-                TextField(L10n.text("Custom session"), text: $customSession).textFieldStyle(EdgeTextFieldStyle())
-                Button {
-                    let name = customSession.trimmingCharacters(in: .whitespaces)
-                    if !name.isEmpty && !preferences.sessions.contains(name) { preferences.sessions.append(name); preferences.sessionHours[name] = ""; customSession = "" }
-                } label: { Label(L10n.text("Add session"), systemImage: "plus") }.buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                TextField(L10n.text("Custom session"), text: $customSession).textFieldStyle(EdgeTextFieldStyle()).onSubmit { addSession() }
+                Button(action: addSession) { Label(L10n.text("Add session"), systemImage: "plus") }.buttonStyle(EdgeButtonStyle(prominent: false, compact: true)).disabled(customSession.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             Text(L10n.text("Session hours are your reference schedule. Choose the session explicitly on each trade. Save preferences to apply changes.")).font(.system(size: 11)).foregroundStyle(Palette.muted).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
         }
@@ -165,8 +174,8 @@ struct SettingsView: View {
                 }
             }
             HStack(spacing: 10) {
-                TextField(L10n.text("Custom symbol"), text: $customInstrument).textFieldStyle(EdgeTextFieldStyle())
-                Button(action: addInstrument) { Label(L10n.text("Add instrument"), systemImage: "plus") }.buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                TextField(L10n.text("Custom symbol"), text: $customInstrument).textFieldStyle(EdgeTextFieldStyle()).onSubmit { addInstrument() }
+                Button(action: addInstrument) { Label(L10n.text("Add instrument"), systemImage: "plus") }.buttonStyle(EdgeButtonStyle(prominent: false, compact: true)).disabled(customInstrument.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
     }
@@ -187,8 +196,8 @@ struct SettingsView: View {
                 }.padding(10).background(Palette.canvas.opacity(0.3), in: RoundedRectangle(cornerRadius: 9))
             }
             HStack(spacing: 10) {
-                TextField(L10n.text("Rule name"), text: $customRule).textFieldStyle(EdgeTextFieldStyle())
-                Button(action: addRule) { Label(L10n.text("Add rule"), systemImage: "plus") }.buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                TextField(L10n.text("Rule name"), text: $customRule).textFieldStyle(EdgeTextFieldStyle()).onSubmit { addRule() }
+                Button(action: addRule) { Label(L10n.text("Add rule"), systemImage: "plus") }.buttonStyle(EdgeButtonStyle(prominent: false, compact: true)).disabled(customRule.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             Text(L10n.text("Custom setups and their rule definitions are managed in Playbook.")).font(.system(size: 11)).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
         }
@@ -210,8 +219,18 @@ struct SettingsView: View {
             if let url = try store.createRecoverySnapshot(reason: "manual") { message = "Yerel yedek oluşturuldu: \(url.lastPathComponent)" }
         } catch { store.report(error) }
     }
+    private func addSession() {
+        let name = customSession.trimmingCharacters(in: .whitespaces)
+        if !name.isEmpty && !preferences.sessions.contains(name) {
+            preferences.sessions.append(name)
+            preferences.sessionHours[name] = ""
+            customSession = ""
+        }
+    }
     private func savePreferences() {
         let original = store.preferences
+        preferences.currency = preferences.currency.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        preferences.timezone = preferences.timezone.trimmingCharacters(in: .whitespacesAndNewlines)
         do { store.preferences = preferences; try store.savePreferences(); message = "Preferences saved." } catch { store.preferences = original; store.report(error) }
     }
     private func addInstrument() {

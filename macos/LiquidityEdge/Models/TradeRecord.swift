@@ -203,7 +203,7 @@ struct TradeRecord: Codable, Identifiable, Hashable {
         if scoresToCheck.contains(where: { !$0.isFinite || !(0...10).contains($0) }) { return "Process scores must be between 0 and 10." }
         if [emotional.confidence, emotional.stress, emotional.fomo, emotional.focus, emotional.satisfaction].contains(where: { !$0.isFinite || !(1...10).contains($0) }) { return "Emotion scores must be between 1 and 10." }
         if !["Long", "Short"].contains(direction) { return "Direction must be Long or Short." }
-        if !["A+", "A", "B", "C", "D", "F"].contains(grade) { return "Choose a valid trade grade." }
+        if !grade.isEmpty && !["A+", "A", "B", "C", "D", "F"].contains(grade) { return "Choose a valid trade grade." }
         if followsPlan && !brokenRules.isEmpty { return "Clear broken rules or mark this trade as outside your plan." }
         if !followsPlan && brokenRules.isEmpty { return "Select at least one broken rule, or add a custom rule." }
         return nil

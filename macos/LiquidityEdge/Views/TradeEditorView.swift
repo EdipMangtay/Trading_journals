@@ -14,6 +14,8 @@ struct TradeEditorView: View {
     @State private var tags = ""
     @State private var loaded = false
     @State private var quickSetup = ""
+    @State private var showQuickSetup = false
+    @State private var quickSetupNotice: String?
     @State private var showDetailedReflection = false
 
     private enum EditorTab: String, CaseIterable, Identifiable {
@@ -121,7 +123,7 @@ struct TradeEditorView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(draft.isNew ? "Yeni İşlem Kaydet" : "İşlemi Düzenle")
                     .font(.system(size: 20, weight: .semibold)).tracking(-0.5)
-                Text("Temel bilgileri hızlıca gir, QT / Narrative ve model teyitlerini tek tıkla işaretle.")
+                Text("İstediğin alanları tek tıkla seç veya tekrar tıklayıp kaldır — yalnızca işine yarayanları doldur.")
                     .font(.system(size: 11)).foregroundStyle(Palette.muted)
             }
             Spacer(minLength: 12)
@@ -149,9 +151,11 @@ struct TradeEditorView: View {
                     .foregroundStyle(t.direction == "Long" ? Palette.mint : Palette.red)
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background((t.direction == "Long" ? Palette.mint : Palette.red).opacity(0.14), in: Capsule())
-                Text(verbatim: t.session)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Palette.muted)
+                if !t.session.isEmpty {
+                    Text(verbatim: t.session)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Palette.muted)
+                }
             }
 
             ribbonDivider
@@ -173,21 +177,29 @@ struct TradeEditorView: View {
                     .foregroundStyle(Palette.blue)
             }
 
-            ribbonDivider
-
-            HStack(spacing: 6) {
-                Text(verbatim: t.bias)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(t.bias == "Bullish" ? Palette.mint : t.bias == "Bearish" ? Palette.red : Palette.muted)
-                Text("·").foregroundStyle(Palette.muted)
-                Text(verbatim: t.biasRelation)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(t.biasRelation == "Counter-Trend" ? Palette.amber : Palette.blue)
+            if !t.bias.isEmpty || !t.biasRelation.isEmpty {
+                ribbonDivider
+                HStack(spacing: 6) {
+                    if !t.bias.isEmpty {
+                        Text(verbatim: t.bias)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(t.bias == "Bullish" ? Palette.mint : t.bias == "Bearish" ? Palette.red : Palette.muted)
+                    }
+                    if !t.bias.isEmpty && !t.biasRelation.isEmpty {
+                        Text("·").foregroundStyle(Palette.muted)
+                    }
+                    if !t.biasRelation.isEmpty {
+                        Text(verbatim: t.biasRelation)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(t.biasRelation == "Counter-Trend" ? Palette.amber : Palette.blue)
+                    }
+                }
             }
 
             if t.qt.enabled {
                 ribbonDivider
-                Text(verbatim: "QT \(t.qt.profile) · \(t.qt.dailyQuarter)/\(t.qt.cycle90)")
+                let qtParts = [t.qt.profile, [t.qt.dailyQuarter, t.qt.cycle90].filter { !$0.isEmpty }.joined(separator: "/")].filter { !$0.isEmpty }.joined(separator: " · ")
+                Text(verbatim: qtParts.isEmpty ? "QT" : "QT \(qtParts)")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Palette.mint)
             }
@@ -294,7 +306,7 @@ struct TradeEditorView: View {
                                 .textFieldStyle(EdgeTextFieldStyle(compact: true))
                                 .frame(width: 150)
                         }
-                        flowChips(options: quickInstruments, selection: $draft.record.instrument)
+                        flowChips(options: quickInstruments, selection: $draft.record.instrument, allowDeselect: false)
                     }
 
                     HStack(alignment: .top, spacing: 18) {
@@ -308,10 +320,10 @@ struct TradeEditorView: View {
                         }
                         .frame(maxWidth: 230, alignment: .leading)
 
-                        // Session 1-click chips
+                        // Session 1-click chips (optional — click again to clear)
                         VStack(alignment: .leading, spacing: 8) {
-                            promptLabel("Seans / Killzone seç (Session)")
-                            flowChips(options: store.preferences.sessions, selection: $draft.record.session)
+                            promptLabel("Seans / Killzone (isteğe bağlı — tekrar tıkla kaldır)")
+                            flowChips(options: store.preferences.sessions, selection: $draft.record.session, allowDeselect: true)
                         }
                     }
 
@@ -335,9 +347,21 @@ struct TradeEditorView: View {
                             .labelsHidden().controlSize(.large).frame(maxWidth: .infinity).frame(minHeight: 36)
                         }
 
-                        // Setup selector
+                        // Setup selector + always-available quick create trigger
                         VStack(alignment: .leading, spacing: 7) {
-                            promptLabel("Playbook / Setup seç")
+                            HStack {
+                                promptLabel("Playbook / Setup seç")
+                                Spacer()
+                                Button {
+                                    showQuickSetup.toggle()
+                                    quickSetupNotice = nil
+                                } label: {
+                                    Label(showQuickSetup ? "Kapat" : "Yeni strateji", systemImage: showQuickSetup ? "xmark" : "plus")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(Palette.mint)
+                                }
+                                .buttonStyle(.plain)
+                            }
                             Picker("Setup", selection: $draft.record.setupID) {
                                 Text("Unassigned").tag(nil as UUID?)
                                 ForEach(store.setups, id: \.id) { Text(verbatim: $0.name).tag(Optional($0.id)) }
@@ -348,27 +372,39 @@ struct TradeEditorView: View {
                             }
                         }
 
-                        // Grade 1-click pills
+                        // Grade 1-click pills (toggleable — click again to clear)
                         VStack(alignment: .leading, spacing: 7) {
                             promptLabel("İşlem notu (Grade)")
                             HStack(spacing: 5) {
                                 ForEach(["A+", "A", "B", "C", "D", "F"], id: \.self) { g in
                                     rawChip(g, selected: draft.record.grade == g, tint: (g == "A+" || g == "A") ? Palette.mint : g == "B" ? Palette.blue : Palette.amber) {
-                                        draft.record.grade = g
+                                        draft.record.grade = draft.record.grade == g ? "" : g
                                     }
                                 }
                             }
                         }
                     }
 
-                    if store.setups.isEmpty {
+                    if store.setups.isEmpty || showQuickSetup {
                         HStack(alignment: .bottom, spacing: 10) {
                             VStack(alignment: .leading, spacing: 6) {
-                                promptLabel("Henüz Setup yok — hemen ilk Setup adını oluştur")
-                                TextField("Örn: NY AM QT + SSMT CISD", text: $quickSetup).textFieldStyle(EdgeTextFieldStyle())
+                                promptLabel(store.setups.isEmpty ? "Henüz strateji yok — hemen ilk strateji / Setup adını oluştur" : "Yeni strateji / Setup adı gir")
+                                TextField("Örn: NY AM QT + SSMT CISD", text: $quickSetup)
+                                    .textFieldStyle(EdgeTextFieldStyle())
+                                    .onSubmit { createQuickSetup() }
                             }
-                            Button("Setup Oluştur") { createQuickSetup() }.buttonStyle(EdgeButtonStyle(prominent: false))
+                            Button("Strateji Oluştur") { createQuickSetup() }
+                                .buttonStyle(EdgeButtonStyle(prominent: false))
+                                .disabled(quickSetup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
+                        .padding(12)
+                        .background(Palette.field.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.mint.opacity(0.22)))
+                    }
+                    if let quickSetupNotice {
+                        Label(quickSetupNotice, systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Palette.mint)
                     }
                 }
             }
@@ -384,14 +420,19 @@ struct TradeEditorView: View {
                         optionalNumberField("Position Size (Lot/Kontrat)", value: $draft.record.positionSize)
                     }
 
-                    // Quick Risk % and Quick R buttons
+                    // Quick Risk % and Quick R buttons (toggleable)
                     HStack(spacing: 16) {
                         HStack(spacing: 6) {
                             Text("Hızlı Risk %:").font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.muted)
                             ForEach([0.25, 0.5, 1.0, 2.0], id: \.self) { pct in
                                 rawChip("\(Format.number(pct, digits: pct == 0.25 ? 2 : 1))%", selected: draft.record.riskPercent == pct, tint: Palette.blue) {
-                                    draft.record.riskPercent = pct
-                                    draft.applyRiskPercent(from: activeAccount.startingBalance)
+                                    if draft.record.riskPercent == pct {
+                                        draft.record.riskPercent = nil
+                                        draft.record.riskDollars = nil
+                                    } else {
+                                        draft.record.riskPercent = pct
+                                        draft.applyRiskPercent(from: activeAccount.startingBalance)
+                                    }
                                 }
                             }
                         }
@@ -401,7 +442,11 @@ struct TradeEditorView: View {
                             ForEach([-1.0, -0.5, 0.0, 1.0, 2.0, 3.0], id: \.self) { r in
                                 let label = r == 0 ? "BE" : (r > 0 ? "+\(Int(r))R" : "\(Format.number(r, digits: r == -0.5 ? 1 : 0))R")
                                 rawChip(label, selected: draft.record.rMultiple == r, tint: Palette.outcome(r)) {
-                                    draft.applyRMultiple(r)
+                                    if draft.record.rMultiple == r {
+                                        draft.record.rMultiple = nil
+                                    } else {
+                                        draft.applyRMultiple(r)
+                                    }
                                 }
                             }
                             Button("Net PnL → R") { draft.calculateR() }
@@ -486,9 +531,15 @@ struct TradeEditorView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             promptLabel("HTF Bias yönü neydi?")
                             HStack(spacing: 6) {
-                                rawChip("Bullish", selected: draft.record.bias == "Bullish", tint: Palette.mint) { draft.record.bias = "Bullish" }
-                                rawChip("Bearish", selected: draft.record.bias == "Bearish", tint: Palette.red) { draft.record.bias = "Bearish" }
-                                rawChip("Neutral", selected: draft.record.bias == "Neutral", tint: Palette.muted) { draft.record.bias = "Neutral" }
+                                rawChip("Bullish", selected: draft.record.bias == "Bullish", tint: Palette.mint) {
+                                    draft.record.bias = draft.record.bias == "Bullish" ? "Neutral" : "Bullish"
+                                }
+                                rawChip("Bearish", selected: draft.record.bias == "Bearish", tint: Palette.red) {
+                                    draft.record.bias = draft.record.bias == "Bearish" ? "Neutral" : "Bearish"
+                                }
+                                rawChip("Neutral", selected: draft.record.bias == "Neutral", tint: Palette.muted) {
+                                    draft.record.bias = "Neutral"
+                                }
                             }
                         }
 
@@ -498,7 +549,7 @@ struct TradeEditorView: View {
                                 ForEach(Catalog.biasRelations, id: \.self) { rel in
                                     let tint = rel == "Pro-Trend" ? Palette.mint : rel == "Counter-Trend" ? Palette.amber : Palette.blue
                                     rawChip(rel, selected: draft.record.biasRelation == rel, tint: tint) {
-                                        draft.record.biasRelation = rel
+                                        draft.record.biasRelation = draft.record.biasRelation == rel ? "" : rel
                                     }
                                 }
                             }
@@ -526,7 +577,7 @@ struct TradeEditorView: View {
                     // Narrative quick chips + text input
                     VStack(alignment: .leading, spacing: 8) {
                         promptLabel("Narrative / Likidite akışını seç veya kendi cümlenle gir")
-                        flowChips(options: Catalog.narratives, selection: $draft.record.narrative)
+                        flowChips(options: Catalog.narratives, selection: $draft.record.narrative, minWidth: 175)
                         TextField("Örn: London SSL sweep sonrası TDO altında Discount'tan NY AM Q3 ERL (PDH) hedefi...", text: $draft.record.narrative)
                             .textFieldStyle(EdgeTextFieldStyle())
                     }
@@ -538,7 +589,7 @@ struct TradeEditorView: View {
                             HStack(spacing: 6) {
                                 ForEach(Catalog.newsDrivers, id: \.self) { driver in
                                     rawChip(driver, selected: draft.record.newsDriver == driver, tint: driver == "Clean" ? Palette.mint : Palette.amber) {
-                                        draft.record.newsDriver = driver
+                                        draft.record.newsDriver = draft.record.newsDriver == driver ? "" : driver
                                     }
                                 }
                             }
@@ -608,17 +659,24 @@ struct TradeEditorView: View {
                             draft.record.qt.valid = true
                             if animate { EdgeHaptics.selection() }
                         }.buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+
+                        if draft.record.qt.enabled {
+                            Button("QT Kapat / Sıfırla") {
+                                draft.record.qt = QTContext()
+                                if animate { EdgeHaptics.tick() }
+                            }.buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                        }
                     }
 
                     if draft.record.qt.enabled {
-                        // Profile + Phase
+                        // Profile + Phase (toggleable)
                         HStack(alignment: .top, spacing: 24) {
                             VStack(alignment: .leading, spacing: 8) {
                                 promptLabel("Cycle Profili (AMDX / XAMD)")
                                 HStack(spacing: 6) {
                                     ForEach(Catalog.qtProfiles, id: \.self) { prof in
                                         rawChip(prof, selected: draft.record.qt.profile == prof, tint: Palette.mint) {
-                                            draft.record.qt.profile = prof
+                                            draft.record.qt.profile = draft.record.qt.profile == prof ? "" : prof
                                         }
                                     }
                                 }
@@ -629,7 +687,7 @@ struct TradeEditorView: View {
                                 HStack(spacing: 6) {
                                     ForEach(["Accumulation", "Manipulation", "Distribution", "Continuation"], id: \.self) { ph in
                                         rawChip(ph, selected: draft.record.qt.phase == ph, tint: Palette.blue) {
-                                            draft.record.qt.phase = ph
+                                            draft.record.qt.phase = draft.record.qt.phase == ph ? "" : ph
                                         }
                                     }
                                 }
@@ -645,14 +703,14 @@ struct TradeEditorView: View {
                             quarterSelector("22.5-Min Micro Cycle", selection: $draft.record.qt.cycle22, hints: ["Q1", "Q2", "Q3", "Q4"])
                         }
 
-                        // True Open Anchor & Location
+                        // True Open Anchor & Location (toggleable)
                         HStack(alignment: .top, spacing: 24) {
                             VStack(alignment: .leading, spacing: 8) {
                                 promptLabel("True Open Referansı")
                                 HStack(spacing: 6) {
                                     ForEach([("TDO", "TDO (00:00)"), ("TSO", "TSO (Session)"), ("T90O", "T90O (90m)"), ("TWO", "TWO (Weekly)")], id: \.0) { code, label in
                                         rawChip(label, selected: draft.record.qt.trueOpenAnchor == code, tint: Palette.blue) {
-                                            draft.record.qt.trueOpenAnchor = code
+                                            draft.record.qt.trueOpenAnchor = draft.record.qt.trueOpenAnchor == code ? "" : code
                                         }
                                     }
                                 }
@@ -663,7 +721,7 @@ struct TradeEditorView: View {
                                 HStack(spacing: 6) {
                                     ForEach(Catalog.trueOpenLocations, id: \.self) { loc in
                                         rawChip(loc, selected: draft.record.qt.trueOpenLocation == loc, tint: loc == "Discount" ? Palette.mint : loc == "Premium" ? Palette.red : Palette.amber) {
-                                            draft.record.qt.trueOpenLocation = loc
+                                            draft.record.qt.trueOpenLocation = draft.record.qt.trueOpenLocation == loc ? "" : loc
                                         }
                                     }
                                 }
@@ -697,11 +755,11 @@ struct TradeEditorView: View {
             Panel(title: "GİRİŞ MODELİ & TEYİTLER (ENTRY TRIGGERS)", subtitle: "Giriş zaman dilimini ve fiyat hareketi teyitlerini işaretle") {
                 VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 8) {
-                        promptLabel("Giriş Timeframe'i (Execution TF)")
+                        promptLabel("Giriş Timeframe'i (Execution TF — tekrar tıkla kaldır)")
                         HStack(spacing: 6) {
                             ForEach(["15M", "5M", "3M", "1M"], id: \.self) { tf in
                                 rawChip(tf, selected: draft.record.entryTimeframe == tf, tint: Palette.mint) {
-                                    draft.record.entryTimeframe = tf
+                                    draft.record.entryTimeframe = draft.record.entryTimeframe == tf ? "" : tf
                                 }
                             }
                         }
@@ -722,8 +780,9 @@ struct TradeEditorView: View {
                             HStack(spacing: 6) {
                                 ForEach(["Yes", "No", "Not Required"], id: \.self) { val in
                                     rawChip(val, selected: draft.record.ssmt.confirmation == val, tint: val == "Yes" ? Palette.mint : Palette.muted) {
-                                        draft.record.ssmt.confirmation = val
-                                        if val != "Yes" { draft.record.ssmt.valid = false }
+                                        let next = (draft.record.ssmt.confirmation == val && val != "Not Required") ? "Not Required" : val
+                                        draft.record.ssmt.confirmation = next
+                                        if next != "Yes" { draft.record.ssmt.valid = false }
                                     }
                                 }
                             }
@@ -740,8 +799,9 @@ struct TradeEditorView: View {
                             HStack(spacing: 6) {
                                 ForEach(["Yes", "No", "Not Required"], id: \.self) { val in
                                     rawChip(val, selected: draft.record.tsmo == val, tint: val == "Yes" ? Palette.mint : Palette.muted) {
-                                        draft.record.tsmo = val
-                                        if val != "Yes" { draft.record.tsmoValid = false }
+                                        let next = (draft.record.tsmo == val && val != "Not Required") ? "Not Required" : val
+                                        draft.record.tsmo = next
+                                        if next != "Yes" { draft.record.tsmoValid = false }
                                     }
                                 }
                                 if draft.record.tsmo == "Yes" {
@@ -754,7 +814,7 @@ struct TradeEditorView: View {
                     if draft.record.ssmt.confirmation == "Yes" {
                         VStack(alignment: .leading, spacing: 8) {
                             promptLabel("SSMT Tipi (Divergence Type)")
-                            flowChips(options: ["Sequential SMT (SSMT)", "Wick SMT", "Body / Hidden SMT", "High divergence", "Low divergence", "Intermarket divergence", "Time-based divergence"], selection: $draft.record.ssmt.type)
+                            flowChips(options: ["Sequential SMT (SSMT)", "Wick SMT", "Body / Hidden SMT", "High divergence", "Low divergence", "Intermarket divergence", "Time-based divergence"], selection: $draft.record.ssmt.type, minWidth: 165)
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
@@ -778,8 +838,12 @@ struct TradeEditorView: View {
                     HStack(spacing: 8) {
                         promptLabel("Model tipi:")
                         rawChip("None", selected: draft.record.mmxm.model == "None", tint: Palette.muted) { draft.record.mmxm.model = "None" }
-                        rawChip("MMBM (Buy Model)", selected: draft.record.mmxm.model == "Market Maker Buy Model", tint: Palette.mint) { draft.record.mmxm.model = "Market Maker Buy Model" }
-                        rawChip("MMSM (Sell Model)", selected: draft.record.mmxm.model == "Market Maker Sell Model", tint: Palette.red) { draft.record.mmxm.model = "Market Maker Sell Model" }
+                        rawChip("MMBM (Buy Model)", selected: draft.record.mmxm.model == "Market Maker Buy Model", tint: Palette.mint) {
+                            draft.record.mmxm.model = draft.record.mmxm.model == "Market Maker Buy Model" ? "None" : "Market Maker Buy Model"
+                        }
+                        rawChip("MMSM (Sell Model)", selected: draft.record.mmxm.model == "Market Maker Sell Model", tint: Palette.red) {
+                            draft.record.mmxm.model = draft.record.mmxm.model == "Market Maker Sell Model" ? "None" : "Market Maker Sell Model"
+                        }
                     }
                     if draft.record.mmxm.model != "None" {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 10)], alignment: .leading, spacing: 10) {
@@ -799,16 +863,22 @@ struct TradeEditorView: View {
             HStack(alignment: .top, spacing: 18) {
                 Panel(title: "PO3 · POWER OF THREE") {
                     VStack(alignment: .leading, spacing: 12) {
-                        promptLabel("PO3 Fazı")
+                        promptLabel("PO3 Fazı (isteğe bağlı)")
                         HStack(spacing: 6) {
                             ForEach(["Accumulation", "Manipulation", "Distribution"], id: \.self) { ph in
-                                rawChip(ph, selected: draft.record.po3.phase == ph, tint: Palette.blue) { draft.record.po3.phase = ph }
+                                rawChip(ph, selected: draft.record.po3.phase == ph, tint: Palette.blue) {
+                                    draft.record.po3.phase = draft.record.po3.phase == ph ? "" : ph
+                                }
                             }
                         }
                         promptLabel("Manipulation Yönü (Judas Swing)")
                         HStack(spacing: 6) {
-                            rawChip("Up (High Sweep)", selected: draft.record.po3.manipulationDirection == "Up", tint: Palette.red) { draft.record.po3.manipulationDirection = "Up" }
-                            rawChip("Down (Low Sweep)", selected: draft.record.po3.manipulationDirection == "Down", tint: Palette.mint) { draft.record.po3.manipulationDirection = "Down" }
+                            rawChip("Up (High Sweep)", selected: draft.record.po3.manipulationDirection == "Up", tint: Palette.red) {
+                                draft.record.po3.manipulationDirection = draft.record.po3.manipulationDirection == "Up" ? "" : "Up"
+                            }
+                            rawChip("Down (Low Sweep)", selected: draft.record.po3.manipulationDirection == "Down", tint: Palette.mint) {
+                                draft.record.po3.manipulationDirection = draft.record.po3.manipulationDirection == "Down" ? "" : "Down"
+                            }
                         }
                         Toggle("PO3 Valid", isOn: $draft.record.po3.valid).toggleStyle(.switch).font(.system(size: 11))
                     }
@@ -821,7 +891,9 @@ struct TradeEditorView: View {
                             promptLabel("CRT Timeframe")
                             HStack(spacing: 5) {
                                 ForEach(["Daily", "4H", "1H", "15M", "5M"], id: \.self) { tf in
-                                    rawChip(tf, selected: draft.record.crt.timeframe == tf, tint: Palette.blue) { draft.record.crt.timeframe = tf }
+                                    rawChip(tf, selected: draft.record.crt.timeframe == tf, tint: Palette.blue) {
+                                        draft.record.crt.timeframe = draft.record.crt.timeframe == tf ? "" : tf
+                                    }
                                 }
                             }
                             HStack(spacing: 10) {
@@ -829,8 +901,12 @@ struct TradeEditorView: View {
                                 optionalNumberField("CRT Low", value: $draft.record.crt.low)
                             }
                             HStack(spacing: 10) {
-                                rawChip("High Sweep", selected: draft.record.crt.liquidityTaken == "High", tint: Palette.red) { draft.record.crt.liquidityTaken = "High" }
-                                rawChip("Low Sweep", selected: draft.record.crt.liquidityTaken == "Low", tint: Palette.mint) { draft.record.crt.liquidityTaken = "Low" }
+                                rawChip("High Sweep", selected: draft.record.crt.liquidityTaken == "High", tint: Palette.red) {
+                                    draft.record.crt.liquidityTaken = draft.record.crt.liquidityTaken == "High" ? "" : "High"
+                                }
+                                rawChip("Low Sweep", selected: draft.record.crt.liquidityTaken == "Low", tint: Palette.mint) {
+                                    draft.record.crt.liquidityTaken = draft.record.crt.liquidityTaken == "Low" ? "" : "Low"
+                                }
                                 Toggle("Re-entry", isOn: $draft.record.crt.reentry).toggleStyle(.switch).font(.system(size: 11))
                                 Toggle("Confirmed", isOn: $draft.record.crt.confirmed).toggleStyle(.switch).font(.system(size: 11))
                             }
@@ -1009,7 +1085,7 @@ struct TradeEditorView: View {
                 ForEach(0..<4, id: \.self) { i in
                     let q = quarters[i]
                     rawChip(hints[i], selected: selection.wrappedValue == q, tint: Palette.mint) {
-                        selection.wrappedValue = q
+                        selection.wrappedValue = selection.wrappedValue == q ? "" : q
                     }
                 }
             }
@@ -1035,12 +1111,12 @@ struct TradeEditorView: View {
         .buttonStyle(.plain)
     }
 
-    private func flowChips(options: [String], selection: Binding<String>) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 6, alignment: .leading)], alignment: .leading, spacing: 6) {
+    private func flowChips(options: [String], selection: Binding<String>, minWidth: CGFloat = 110, allowDeselect: Bool = true) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: minWidth), spacing: 6, alignment: .leading)], alignment: .leading, spacing: 6) {
             ForEach(options, id: \.self) { opt in
                 let isSel = selection.wrappedValue == opt
                 Button {
-                    selection.wrappedValue = isSel ? "" : opt
+                    selection.wrappedValue = (isSel && allowDeselect) ? "" : opt
                     if animate { EdgeHaptics.tick() }
                 } label: {
                     Text(verbatim: opt)
@@ -1120,11 +1196,30 @@ struct TradeEditorView: View {
 
     private func createQuickSetup() {
         let name = quickSetup.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { draft.error = "Setup için bir ad gir."; return }
+        guard !name.isEmpty else { draft.error = "Strateji / Setup için bir ad gir."; return }
+        if let existing = store.setups.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            draft.record.setupID = existing.id
+            draft.record.setupName = existing.name
+            quickSetup = ""
+            showQuickSetup = false
+            quickSetupNotice = "Mevcut '\(existing.name)' stratejisi seçildi."
+            return
+        }
         do {
             let setup = Setup(name: name)
-            try store.commit { store.context.insert(setup); let book = Playbook(); store.context.insert(book); setup.playbook = book }
-            draft.record.setupID = setup.id; draft.record.setupName = name; quickSetup = ""
+            try store.commit {
+                store.context.insert(setup)
+                let book = Playbook()
+                store.context.insert(book)
+                setup.playbook = book
+            }
+            draft.record.setupID = setup.id
+            draft.record.setupName = name
+            quickSetup = ""
+            showQuickSetup = false
+            draft.error = nil
+            quickSetupNotice = "'\(name)' stratejisi oluşturuldu ve seçildi."
+            if animate { EdgeHaptics.selection() }
         } catch { draft.error = error.localizedDescription }
     }
 }

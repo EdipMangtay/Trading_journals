@@ -30,6 +30,10 @@ struct JournalError: LocalizedError {
     private(set) var workspace = WorkspaceState()
     private(set) var selectedAccount: TradingAccount = TradingAccount(id: TradingAccount.legacyID, name: "Eski günlük", currency: "USD", startingBalance: 50000)
     private(set) var scopedTrades: [TradeRecord] = []
+    private(set) var scopedPerformance = Performance()
+    private(set) var scopedCurve: [CurvePoint] = []
+    private(set) var scopedTodayPnL = 0.0
+    private(set) var scopedClassifications: [Classification: Int] = [:]
     @ObservationIgnored private var accountsByID: [UUID: TradingAccount] = [:]
     var accountCurrency: String { selectedAccount.currency }
     func accountID(for tradeID: UUID) -> UUID { workspace.assignments[tradeID] ?? TradingAccount.legacyID }
@@ -44,6 +48,18 @@ struct JournalError: LocalizedError {
         } else {
             scopedTrades = trades.filter { (workspace.assignments[$0.id] ?? TradingAccount.legacyID) == targetID }
         }
+        scopedPerformance = AnalyticsEngine.performance(scopedTrades)
+        scopedCurve = AnalyticsEngine.curve(scopedTrades)
+        let cal = preferences.calendar
+        let now = Date()
+        var todaySum = 0.0
+        var counts: [Classification: Int] = [:]
+        for t in scopedTrades {
+            counts[t.classification, default: 0] += 1
+            if cal.isDate(t.date, inSameDayAs: now) { todaySum += t.netPnL }
+        }
+        scopedTodayPnL = todaySum
+        scopedClassifications = counts
     }
     func updateWorkspace(_ change: (inout WorkspaceState) throws -> Void) throws {
         var next = workspace; try change(&next); try next.validate(tradeIDs: Set(trades.map(\.id)))
@@ -143,6 +159,20 @@ struct JournalError: LocalizedError {
                     context.insert(image); image.trade = model
                 }
             }
+        }
+    }
+    func saveBatch(_ records: [TradeRecord], accountID: UUID? = nil) throws {
+        guard !records.isEmpty else { return }
+        for record in records { if let error = record.validationError { throw JournalError(message: error) } }
+        let assigned = accountID ?? selectedAccount.id
+        guard workspace.accounts.contains(where: { $0.id == assigned }) else { throw JournalError(message: "Hesap bulunamadı.") }
+        try commit {
+            var next = workspace
+            for record in records {
+                _ = try upsert(record)
+                next.assignments[record.id] = assigned
+            }
+            try persistWorkspace(next)
         }
     }
     @discardableResult func upsert(_ record: TradeRecord) throws -> Trade {

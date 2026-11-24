@@ -50,7 +50,7 @@ struct AccountRiskView: View {
                 if risk.historicalBreach { Label("Kayıtlı kapanışlarda tanımlı kayıp sınırı aşıldı. Geçmiş ihlal sonraki kazançla silinmez.", systemImage: "exclamationmark.triangle").foregroundStyle(Palette.red).font(.callout) }
                 HStack(alignment: .top, spacing: 24) {
                     Panel(title: "HESAP PERFORMANSI", subtitle: "İşlem kayıtları · Net sonuç") {
-                        EquityChart(points: AnalyticsEngine.curve(store.scopedTrades), height: 280)
+                        EquityChart(points: store.scopedCurve, height: 280)
                     }
                     Panel(title: "KURAL PANOSU") {
                         riskRow("Kâr hedefi", value: account.rules.profitTarget.map { "\(Format.money(risk.realized, currency: account.currency)) / \(Format.money($0, currency: account.currency))" } ?? "Tanımlanmadı")
@@ -66,9 +66,9 @@ struct AccountRiskView: View {
                     }.frame(maxWidth: 340)
                 }
                 Panel(title: "HESAPLARI KARŞILAŞTIR", subtitle: "Para birimleri ayrı tutulur; döviz dönüşümü yapılmaz.") {
+                    let tradesByAccount = Dictionary(grouping: store.trades) { store.accountID(for: $0.id) }
                     ForEach(store.workspace.accounts) { a in
-                        let data = store.trades.filter { store.accountID(for: $0.id) == a.id }
-                        let p = AnalyticsEngine.performance(data)
+                        let p = a.id == account.id ? store.scopedPerformance : AnalyticsEngine.performance(tradesByAccount[a.id] ?? [])
                         HStack {
                             Button(a.name) { do { try store.updateWorkspace { $0.selectedAccountID = a.id } } catch { store.report(error) } }.buttonStyle(.plain).foregroundStyle(Palette.mint)
                             Text(a.active ? a.category : "Arşiv").foregroundStyle(Palette.muted)
@@ -94,7 +94,12 @@ struct AccountEditor: View {
     init(initial: TradingAccount) { _account = State(initialValue: initial) }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack { Text("Hesap ve risk kuralları").font(.title2); Spacer(); Button("İptal") { dismiss() }.keyboardShortcut(.cancelAction); Button("Kaydet", action: save).buttonStyle(EdgeButtonStyle()) }
+            HStack {
+                Text("Hesap ve risk kuralları").font(.title2.weight(.semibold))
+                Spacer()
+                Button("İptal") { dismiss() }.buttonStyle(EdgeButtonStyle(prominent: false, compact: true)).keyboardShortcut(.cancelAction)
+                Button("Kaydet", action: save).buttonStyle(EdgeButtonStyle(compact: true)).keyboardShortcut("s", modifiers: .command)
+            }
             Form {
                 TextField("Hesap adı", text: $account.name)
                 TextField("Para birimi (ISO)", text: $account.currency)
@@ -113,12 +118,13 @@ struct AccountEditor: View {
                 }
             }.formStyle(.grouped)
             Text("Hesabı pasifleştirmek geçmiş işlemleri korur. Para birimini değiştirmek tutarları dönüştürmez.").font(.caption).foregroundStyle(Palette.muted)
-            if let error { Text(error).foregroundStyle(Palette.red) }
-        }.padding(24).frame(width: 620, height: 680).background(Palette.canvas)
+            if let error { Text(error).foregroundStyle(Palette.red).font(.caption) }
+        }.padding(24).frame(width: 620, height: 680).background(Palette.canvas).foregroundStyle(Palette.ink).tint(Palette.mint)
     }
     private func save() {
         do {
-            account.currency = account.currency.uppercased()
+            account.name = account.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            account.currency = account.currency.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
             try store.updateWorkspace { state in
                 if let index = state.accounts.firstIndex(where: { $0.id == account.id }) { state.accounts[index] = account }
                 else { state.accounts.append(account) }
@@ -130,22 +136,39 @@ struct TerminalMetric: View {
     var title: String
     var value: String
     var color: Color = Palette.ink
+    var subtitle: String = ""
     @State private var hovering = false
+    @Environment(\.edgeAnimationsEnabled) private var animationsEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text(title).font(.system(size: 9, weight: .semibold)).tracking(1.0).foregroundStyle(hovering ? Palette.mint : Palette.muted)
+        let shouldAnimate = animationsEnabled && !reduceMotion
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 5) {
+                if hovering {
+                    Circle().fill(Palette.mint).frame(width: 4, height: 4)
+                        .transition(.scale.combined(with: .opacity))
+                }
+                Text(title).font(.system(size: 9, weight: .semibold)).tracking(1.0).foregroundStyle(hovering ? Palette.mint : Palette.muted)
+            }
             Text(value)
                 .font(.system(size: 26, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
-                .contentTransition(.numericText())
+                .contentTransition(shouldAnimate ? .numericText() : .identity)
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Palette.muted.opacity(0.85))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(shouldAnimate ? .easeOut(duration: 0.14) : nil, value: hovering)
         .accessibilityElement(children: .combine)
     }
 }

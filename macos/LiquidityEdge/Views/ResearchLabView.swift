@@ -7,17 +7,18 @@ struct ResearchLabView: View {
 
     @State private var filter = TradeFilter()
     @State private var presetName = ""
+    @State private var presetError: String?
     @State private var showSavePreset = false
     @State private var selectedTab = "Matrix"
     @State private var selectedCohortTrades: [TradeRecord] = []
     @State private var selectedCohortTitle = ""
 
     private var trades: [TradeRecord] {
-        filter.apply(store.scopedTrades, calendar: store.preferences.calendar)
+        filter.isEmpty ? store.scopedTrades : filter.apply(store.scopedTrades, calendar: store.preferences.calendar)
     }
 
     private var performance: Performance {
-        AnalyticsEngine.performance(trades)
+        filter.isEmpty ? store.scopedPerformance : AnalyticsEngine.performance(trades)
     }
 
     var body: some View {
@@ -128,7 +129,7 @@ struct ResearchLabView: View {
                 }
             }
             Spacer()
-            if !filter.query.isEmpty || filter.from != nil || filter.to != nil || !filter.facets.isEmpty {
+            if !filter.isEmpty {
                 Button("Filtreyi Temizle") {
                     filter = TradeFilter()
                 }
@@ -243,11 +244,13 @@ struct ResearchLabView: View {
 
     // MARK: - Tab: Setup × Session
     private var setupSessionSection: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        let sessions = Array(Set(trades.map(\.session))).sorted()
+        let setups = Array(Set(trades.map(\.setupName))).sorted()
+        let instruments = Array(Set(trades.map(\.instrument))).sorted()
+        let bySetupSession = Dictionary(grouping: trades) { "\($0.setupName)\u{1F}\($0.session)" }
+        let bySetupInstrument = Dictionary(grouping: trades) { "\($0.setupName)\u{1F}\($0.instrument)" }
+        return VStack(alignment: .leading, spacing: 20) {
             Panel(title: "SETUP × OTURUM DAĞILIMI", subtitle: "Hangi kurulum hangi seansta en yüksek beklentiyi üretti?") {
-                let sessions = Array(Set(trades.map(\.session))).sorted()
-                let setups = Array(Set(trades.map(\.setupName))).sorted()
-
                 ScrollView(.horizontal) {
                     VStack(alignment: .leading, spacing: 0) {
                         HStack {
@@ -263,12 +266,12 @@ struct ResearchLabView: View {
                             HStack {
                                 Text(setup).font(.system(size: 12, weight: .medium)).frame(width: 160, alignment: .leading)
                                 ForEach(sessions, id: \.self) { session in
-                                    let cellTrades = trades.filter { $0.setupName == setup && $0.session == session }
-                                    let cellPerf = AnalyticsEngine.performance(cellTrades)
+                                    let cellTrades = bySetupSession["\(setup)\u{1F}\(session)"] ?? []
                                     VStack(alignment: .trailing, spacing: 2) {
                                         if cellTrades.isEmpty {
                                             Text("—").foregroundStyle(Palette.muted)
                                         } else {
+                                            let cellPerf = AnalyticsEngine.performance(cellTrades)
                                             Button {
                                                 selectedCohortTrades = cellTrades
                                                 selectedCohortTitle = "\(setup) · \(session)"
@@ -297,9 +300,6 @@ struct ResearchLabView: View {
             }
 
             Panel(title: "SETUP × ENSTRÜMAN DAĞILIMI", subtitle: "Kurulumların enstrümanlara göre performansı") {
-                let instruments = Array(Set(trades.map(\.instrument))).sorted()
-                let setups = Array(Set(trades.map(\.setupName))).sorted()
-
                 ScrollView(.horizontal) {
                     VStack(alignment: .leading, spacing: 0) {
                         HStack {
@@ -315,12 +315,12 @@ struct ResearchLabView: View {
                             HStack {
                                 Text(setup).font(.system(size: 12, weight: .medium)).frame(width: 160, alignment: .leading)
                                 ForEach(instruments, id: \.self) { inst in
-                                    let cellTrades = trades.filter { $0.setupName == setup && $0.instrument == inst }
-                                    let cellPerf = AnalyticsEngine.performance(cellTrades)
+                                    let cellTrades = bySetupInstrument["\(setup)\u{1F}\(inst)"] ?? []
                                     VStack(alignment: .trailing, spacing: 2) {
                                         if cellTrades.isEmpty {
                                             Text("—").foregroundStyle(Palette.muted)
                                         } else {
+                                            let cellPerf = AnalyticsEngine.performance(cellTrades)
                                             Button {
                                                 selectedCohortTrades = cellTrades
                                                 selectedCohortTitle = "\(setup) · \(inst)"
@@ -520,34 +520,46 @@ struct ResearchLabView: View {
             HStack {
                 Text("Araştırma Filtresini Kaydet").font(.title2.weight(.bold))
                 Spacer()
-                Button("İptal") { showSavePreset = false }.keyboardShortcut(.cancelAction)
+                Button("İptal") { presetError = nil; showSavePreset = false }
+                    .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                    .keyboardShortcut(.cancelAction)
             }
             Text("Geçerli arama terimi, tarih aralığı ve boyut filtreleri bir ön ayar olarak saklanır.").font(.caption).foregroundStyle(Palette.muted)
 
             TextField("Filtre Adı (örn: London CRT + SSMT)", text: $presetName)
                 .textFieldStyle(EdgeTextFieldStyle())
+                .onSubmit { savePreset() }
+
+            if let presetError {
+                Text(presetError).font(.caption).foregroundStyle(Palette.amber)
+            }
 
             HStack {
                 Spacer()
-                Button("Kaydet") {
-                    let clean = presetName.trimmingCharacters(in: .whitespaces)
-                    guard !clean.isEmpty else { return }
-                    let preset = ResearchPreset(name: clean, filter: filter)
-                    do {
-                        try store.updateWorkspace { $0.presets.append(preset) }
-                        presetName = ""
-                        showSavePreset = false
-                    } catch {
-                        store.report(error)
-                    }
-                }
-                .buttonStyle(EdgeButtonStyle())
-                .disabled(presetName.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button("Kaydet") { savePreset() }
+                    .buttonStyle(EdgeButtonStyle(compact: true))
+                    .disabled(presetName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
         .padding(24)
         .frame(width: 440)
         .background(Palette.canvas)
+        .foregroundStyle(Palette.ink)
+        .tint(Palette.mint)
+    }
+
+    private func savePreset() {
+        let clean = presetName.trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty else { return }
+        let preset = ResearchPreset(name: clean, filter: filter)
+        do {
+            try store.updateWorkspace { $0.presets.append(preset) }
+            presetName = ""
+            presetError = nil
+            showSavePreset = false
+        } catch {
+            presetError = error.localizedDescription
+        }
     }
 
     private func deletePreset(_ preset: ResearchPreset) {

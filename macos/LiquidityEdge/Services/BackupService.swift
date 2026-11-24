@@ -91,9 +91,13 @@ enum BackupService {
                     try store.persistWorkspace(merged)
                 }
                 for archive in backup.setups {
-                    let setup = store.setups.first { $0.id == archive.id } ?? Setup(id: archive.id, name: archive.name)
-                    store.context.insert(setup); setup.name = archive.name; setup.summary = archive.summary
-                    let book = setup.playbook ?? Playbook(id: archive.playbookID); store.context.insert(book); setup.playbook = book
+                    let setup: Setup
+                    if let existing = store.setups.first(where: { $0.id == archive.id }) { setup = existing }
+                    else { setup = Setup(id: archive.id, name: archive.name); store.context.insert(setup) }
+                    setup.name = archive.name; setup.summary = archive.summary
+                    let book: Playbook
+                    if let existingBook = setup.playbook { book = existingBook }
+                    else { book = Playbook(id: archive.playbookID); store.context.insert(book); setup.playbook = book }
                     book.conditions = archive.conditions; book.entryRules = archive.entry; book.invalidationRules = archive.invalidation; book.targetRules = archive.target; book.riskRules = archive.risk; book.idealImagesData = try JSONEncoder().encode(archive.images)
                 }
                 let allSetups = try store.context.fetch(FetchDescriptor<Setup>())
@@ -107,15 +111,22 @@ enum BackupService {
                     store.context.insert(shot); shot.trade = store.model(archive.tradeID)
                 }
                 for r in backup.reviews {
-                    let model = store.reviews.first { $0.id == r.id } ?? Review(id: r.id, period: r.period, date: r.date)
-                    store.context.insert(model); model.period = r.period; model.date = r.date; model.worked = r.worked; model.didNot = r.didNot; model.repeatNext = r.repeatNext; model.stop = r.stop; model.adjustment = r.adjustment
+                    let model: Review
+                    if let existing = store.reviews.first(where: { $0.id == r.id }) { model = existing }
+                    else { model = Review(id: r.id, period: r.period, date: r.date); store.context.insert(model) }
+                    model.period = r.period; model.date = r.date; model.worked = r.worked; model.didNot = r.didNot; model.repeatNext = r.repeatNext; model.stop = r.stop; model.adjustment = r.adjustment
                 }
                 for i in backup.instruments {
-                    let model = store.instruments.first { $0.id == i.id } ?? store.instruments.first { $0.symbol == i.symbol } ?? Instrument(id: i.id, symbol: i.symbol)
-                    store.context.insert(model); model.symbol = i.symbol; model.enabled = i.enabled
+                    let model: Instrument
+                    if let existing = store.instruments.first(where: { $0.id == i.id }) ?? store.instruments.first(where: { $0.symbol == i.symbol }) { model = existing }
+                    else { model = Instrument(id: i.id, symbol: i.symbol); store.context.insert(model) }
+                    model.symbol = i.symbol; model.enabled = i.enabled
                 }
                 for r in backup.rules {
-                    let model = store.customRules.first { $0.id == r.id } ?? CustomRule(id: r.id, name: r.name); store.context.insert(model); model.name = r.name
+                    let model: CustomRule
+                    if let existing = store.customRules.first(where: { $0.id == r.id }) { model = existing }
+                    else { model = CustomRule(id: r.id, name: r.name); store.context.insert(model) }
+                    model.name = r.name
                 }
             }
         } catch {

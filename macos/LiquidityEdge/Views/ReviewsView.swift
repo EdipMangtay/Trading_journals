@@ -64,11 +64,11 @@ struct ReviewEditor: View {
     init(initial: ReviewDraft) { _draft = State(initialValue: initial) }
     private var interval: DateInterval { store.preferences.calendar.dateInterval(of: draft.period == "Daily" ? .day : draft.period == "Monthly" ? .month : .weekOfYear, for: draft.date)! }
     private var sheetSize: CGSize {
-        let screen = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1200, height: 900)
-        return CGSize(width: min(880, screen.width - 100), height: min(850, max(480, screen.height - 90)))
+        let screen = (NSApp.keyWindow?.screen ?? NSScreen.main)?.visibleFrame.size ?? CGSize(width: 1200, height: 900)
+        return CGSize(width: min(880, max(680, screen.width - 100)), height: min(850, max(480, screen.height - 90)))
     }
     var body: some View {
-        let trades = store.trades.filter { $0.date >= interval.start && $0.date < interval.end }, p = AnalyticsEngine.performance(trades)
+        let trades = store.scopedTrades.filter { $0.date >= interval.start && $0.date < interval.end }, p = AnalyticsEngine.performance(trades)
         let setups = AnalyticsEngine.groups(trades, by: .setup, calendar: store.preferences.calendar).sorted { ($0.performance.averageR ?? -.infinity) > ($1.performance.averageR ?? -.infinity) }
         let best = trades.max { $0.netPnL < $1.netPnL }, worst = trades.min { $0.netPnL < $1.netPnL }
         VStack(spacing: 0) {
@@ -106,7 +106,7 @@ struct ReviewEditor: View {
                     }
                     HStack(spacing: 14) {
                         MetricCard(title: "Trades", value: "\(p.count)")
-                        MetricCard(title: "Net PnL", value: Format.money(p.netPnL, currency: store.preferences.currency), color: Palette.outcome(p.netPnL))
+                        MetricCard(title: "Net PnL", value: Format.money(p.netPnL, currency: store.accountCurrency), color: Palette.outcome(p.netPnL))
                         MetricCard(title: "R", value: Format.r(p.totalR), color: Palette.outcome(p.totalR))
                     }
                     Panel(title: "REVIEW SNAPSHOT") {
@@ -114,8 +114,8 @@ struct ReviewEditor: View {
                             row("WR / PF / Expectancy", "\(Format.percent(p.winRate)) / \(Format.factor(p)) / \(Format.r(p.averageR))")
                             row("Best setup", setups.first?.name ?? "—")
                             row("Worst setup", setups.last?.name ?? "—")
-                            row("Best trade", best.map { "\($0.instrument) · \(Format.money($0.netPnL, currency: store.preferences.currency))" } ?? "—")
-                            row("Worst trade", worst.map { "\($0.instrument) · \(Format.money($0.netPnL, currency: store.preferences.currency))" } ?? "—")
+                            row("Best trade", best.map { "\($0.instrument) · \(Format.money($0.netPnL, currency: store.accountCurrency))" } ?? "—")
+                            row("Worst trade", worst.map { "\($0.instrument) · \(Format.money($0.netPnL, currency: store.accountCurrency))" } ?? "—")
                             row("Most common mistake", AnalyticsEngine.mistakes(trades).first?.name ?? "None recorded")
                             row("Rule compliance / Execution", "\(Format.percent(p.compliance)) / \(Format.number(p.executionScore, digits: 0))/100", separator: false)
                         }
@@ -144,6 +144,24 @@ struct ReviewEditor: View {
         }.padding(.vertical, 12).overlay(alignment: .bottom) { if separator { Rectangle().fill(Palette.muted.opacity(0.1)).frame(height: 1) } }
     }
     private func save() {
-        do { try store.commit { let review = store.reviews.first { $0.id == draft.id } ?? Review(id: draft.id, period: draft.period, date: draft.date); store.context.insert(review); review.period = draft.period; review.date = draft.date; review.worked = draft.worked; review.didNot = draft.didNot; review.repeatNext = draft.repeatNext; review.stop = draft.stop; review.adjustment = draft.adjustment }; dismiss() } catch { self.error = error.localizedDescription }
+        do {
+            try store.commit {
+                let review: Review
+                if let existing = store.reviews.first(where: { $0.id == draft.id }) {
+                    review = existing
+                } else {
+                    review = Review(id: draft.id, period: draft.period, date: draft.date)
+                    store.context.insert(review)
+                }
+                review.period = draft.period
+                review.date = draft.date
+                review.worked = draft.worked
+                review.didNot = draft.didNot
+                review.repeatNext = draft.repeatNext
+                review.stop = draft.stop
+                review.adjustment = draft.adjustment
+            }
+            dismiss()
+        } catch { self.error = error.localizedDescription }
     }
 }

@@ -88,6 +88,9 @@ struct TradeFilter {
     var query = ""
     var from: Date?, to: Date?
     var facets: [AnalysisDimension: String] = [:]
+    var isEmpty: Bool {
+        query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && from == nil && to == nil && facets.values.allSatisfy(\.isEmpty)
+    }
     func apply(_ trades: [TradeRecord], calendar: Calendar) -> [TradeRecord] {
         let prepared = TradeSearch.PreparedQuery(query)
         let startBound = from.map { calendar.startOfDay(for: $0) }

@@ -11,7 +11,9 @@ struct PlaybookView: View {
     @Environment(JournalStore.self) private var store
     @State private var editor: PlaybookDraft?
     @State private var deleting: Setup?
+    @State private var viewingShot: ScreenshotDraft?
     var body: some View {
+        let tradesBySetup = Dictionary(grouping: store.scopedTrades) { $0.setupID }
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 HStack(alignment: .top, spacing: 24) {
@@ -24,7 +26,7 @@ struct PlaybookView: View {
                     Panel { EmptyJournal(title: "Codify your first setup.", subtitle: "Write the conditions, invalidation and risk rules that make an execution valid.", actionTitle: "Create setup", action: { editor = PlaybookDraft() }) }
                 }
                 ForEach(Array(store.setups.enumerated()), id: \.element.id) { index, setup in
-                    let p = AnalyticsEngine.performance(store.trades.filter { $0.setupID == setup.id })
+                    let p = AnalyticsEngine.performance(tradesBySetup[setup.id] ?? [])
                     Panel {
                         HStack(alignment: .top, spacing: 18) {
                             ZStack {
@@ -50,10 +52,11 @@ struct PlaybookView: View {
                             stat("SAMPLES", "\(p.count)")
                             stat("WIN RATE", Format.percent(p.winRate))
                             stat("AVG R", Format.r(p.averageR))
-                            stat("EXPECTANCY", Format.money(p.expectancy, currency: store.preferences.currency))
+                            stat("EXPECTANCY", Format.money(p.expectancy, currency: store.accountCurrency))
                             stat("COMPLIANCE", Format.percent(p.compliance))
                         }.padding(17).background(Palette.raised.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
                         if let book = setup.playbook {
+                            let idealImages = (try? BackupService.decodeImages(book.idealImagesData)) ?? []
                             DisclosureGroup {
                                 VStack(alignment: .leading, spacing: 18) {
                                     textBlock("Conditions", book.conditions)
@@ -61,6 +64,21 @@ struct PlaybookView: View {
                                     textBlock("Invalidation", book.invalidationRules)
                                     textBlock("Targets", book.targetRules)
                                     textBlock("Risk", book.riskRules)
+                                    if !idealImages.isEmpty {
+                                        VStack(alignment: .leading, spacing: 10) {
+                                            Text(L10n.text("IDEAL EXAMPLES")).font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(1).foregroundStyle(Palette.muted)
+                                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
+                                                ForEach(idealImages) { shot in
+                                                    Button { viewingShot = shot } label: {
+                                                        VStack(alignment: .leading, spacing: 6) {
+                                                            ScreenshotThumbnail(data: shot.thumbnailData, cacheKey: "pb-\(shot.id.uuidString)").frame(height: 120).clipShape(RoundedRectangle(cornerRadius: 8))
+                                                            Text(verbatim: shot.name).font(.system(size: 10)).foregroundStyle(Palette.muted).lineLimit(1)
+                                                        }.padding(8).background(Palette.raised.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+                                                    }.buttonStyle(.plain)
+                                                }
+                                            }
+                                        }
+                                    }
                                 }.padding(.top, 16)
                             } label: {
                                 Label(L10n.text("Conditions & execution rules"), systemImage: "list.bullet.clipboard")
@@ -72,6 +90,7 @@ struct PlaybookView: View {
             }.pagePadding()
         }
         .sheet(item: $editor) { draft in PlaybookEditor(initial: draft).environment(store) }
+        .sheet(item: $viewingShot) { shot in ScreenshotViewer(initial: shot) { _ in } }
         .confirmationDialog(L10n.text("Delete this setup?"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button(L10n.text("Delete setup"), role: .destructive) { if let setup = deleting { do { try store.deleteSetup(setup) } catch { store.report(error) } }; deleting = nil }
         } message: { Text(L10n.text("Linked trades remain in your journal and become Unassigned. The playbook and its ideal images are deleted.")) }
@@ -94,11 +113,10 @@ struct PlaybookEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State var draft: PlaybookDraft
     @State private var error: String?
-    @FocusState private var nameFocused: Bool
     init(initial: PlaybookDraft) { _draft = State(initialValue: initial) }
     private var sheetSize: CGSize {
-        let screen = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1200, height: 900)
-        return CGSize(width: min(860, screen.width - 100), height: min(830, max(480, screen.height - 90)))
+        let screen = (NSApp.keyWindow?.screen ?? NSScreen.main)?.visibleFrame.size ?? CGSize(width: 1200, height: 900)
+        return CGSize(width: min(860, max(680, screen.width - 100)), height: min(830, max(480, screen.height - 90)))
     }
     var body: some View {
         VStack(spacing: 0) {
@@ -117,16 +135,35 @@ struct PlaybookEditor: View {
                     .buttonStyle(EdgeButtonStyle(compact: true)).keyboardShortcut("s", modifiers: .command)
             }.padding(.horizontal, 26).padding(.vertical, 20).background(Palette.panel)
             Rectangle().fill(Palette.muted.opacity(0.12)).frame(height: 1)
+            if let error {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Palette.amber)
+                    Text(L10n.text(error)).font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.amber)
+                    Spacer()
+                    Button("Kapat") { self.error = nil }.buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                }
+                .padding(.horizontal, 26).padding(.vertical, 12)
+                .background(Palette.amber.opacity(0.1))
+                .accessibilityElement(children: .combine)
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Panel(title: "STRATEJİ KİMLİĞİ") {
                         VStack(alignment: .leading, spacing: 9) {
-                            Text(L10n.text("Setup name")).font(.system(size: 12, weight: .medium))
-                            TextField(L10n.text("Setup name"), text: $draft.name).textFieldStyle(EdgeTextFieldStyle()).focused($nameFocused).accessibilityLabel(L10n.text("Setup name"))
+                            HStack(spacing: 4) {
+                                Text(L10n.text("Setup name")).font(.system(size: 12, weight: .medium))
+                                Text("*").font(.system(size: 12, weight: .bold)).foregroundStyle(Palette.mint)
+                            }
+                            TextField("Örn: NY AM QT + SSMT CISD", text: $draft.name)
+                                .textFieldStyle(EdgeTextFieldStyle())
+                                .onSubmit { save() }
+                                .accessibilityLabel(L10n.text("Setup name"))
                         }
                         VStack(alignment: .leading, spacing: 9) {
                             Text(L10n.text("Brief description")).font(.system(size: 12, weight: .medium))
-                            TextField(L10n.text("Brief description"), text: $draft.summary).textFieldStyle(EdgeTextFieldStyle()).accessibilityLabel(L10n.text("Brief description"))
+                            TextField("Kısa strateji özeti (isteğe bağlı)", text: $draft.summary)
+                                .textFieldStyle(EdgeTextFieldStyle())
+                                .accessibilityLabel(L10n.text("Brief description"))
                         }
                     }
                     Panel(title: "Conditions & execution rules") {
@@ -139,13 +176,8 @@ struct PlaybookEditor: View {
                     Panel(title: "IDEAL EXAMPLES") { ScreenshotAttachmentEditor(shots: $draft.images) }
                 }.padding(26)
             }
-            if let error {
-                Label(L10n.text(error), systemImage: "exclamationmark.circle.fill").font(.system(size: 12)).foregroundStyle(Palette.amber)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(14).background(Palette.amber.opacity(0.07))
-                    .accessibilityElement(children: .combine)
-            }
         }.frame(width: sheetSize.width, height: sheetSize.height).background(Palette.canvas).foregroundStyle(Palette.ink).tint(Palette.mint)
-            .onAppear { nameFocused = true }
+            .onChange(of: draft.name) { _, _ in if error != nil { error = nil } }
     }
     private func save() {
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -153,11 +185,36 @@ struct PlaybookEditor: View {
         guard !store.setups.contains(where: { $0.id != draft.id && $0.name.caseInsensitiveCompare(name) == .orderedSame }) else { error = "A setup with this name already exists."; return }
         do {
             try store.commit {
-                let setup = store.setups.first { $0.id == draft.id } ?? Setup(id: draft.id, name: name); store.context.insert(setup); setup.name = name; setup.summary = draft.summary
-                let p = setup.playbook ?? Playbook(); store.context.insert(p); setup.playbook = p
-                p.conditions = draft.conditions; p.entryRules = draft.entry; p.invalidationRules = draft.invalidation; p.targetRules = draft.target; p.riskRules = draft.risk; p.idealImagesData = try JSONEncoder().encode(draft.images)
-                for trade in store.trades where trade.setupID == setup.id { var changed = trade; changed.setupName = name; try store.upsert(changed) }
-            }; dismiss()
+                let setup: Setup
+                if let existing = store.setups.first(where: { $0.id == draft.id }) {
+                    setup = existing
+                } else {
+                    setup = Setup(id: draft.id, name: name)
+                    store.context.insert(setup)
+                }
+                setup.name = name
+                setup.summary = draft.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+                let p: Playbook
+                if let existingBook = setup.playbook {
+                    p = existingBook
+                } else {
+                    p = Playbook()
+                    store.context.insert(p)
+                    setup.playbook = p
+                }
+                p.conditions = draft.conditions
+                p.entryRules = draft.entry
+                p.invalidationRules = draft.invalidation
+                p.targetRules = draft.target
+                p.riskRules = draft.risk
+                p.idealImagesData = try JSONEncoder().encode(draft.images)
+                for trade in store.trades where trade.setupID == setup.id {
+                    var changed = trade
+                    changed.setupName = name
+                    try store.upsert(changed)
+                }
+            }
+            dismiss()
         } catch { self.error = error.localizedDescription }
     }
 }

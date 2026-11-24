@@ -30,26 +30,63 @@ struct TradeDetailView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
                         HStack(alignment: .top, spacing: 24) {
-                            VStack(alignment: .leading, spacing: 14) {
-                                HStack(spacing: 12) {
-                                    Text(verbatim: t.instrument).font(.system(size: 42, weight: .semibold, design: .rounded)).tracking(-1.6)
-                                    Badge(text: t.direction.uppercased(), color: Palette.blue)
-                                    Badge(text: t.grade)
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack(spacing: 10) {
+                                    Text(verbatim: t.instrument).font(.system(size: 40, weight: .semibold, design: .rounded)).tracking(-1.5)
+                                    let isLong = t.direction == "Long"
+                                    let dirColor = isLong ? Palette.mint : Palette.red
+                                    Text(verbatim: t.direction.uppercased())
+                                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                        .foregroundStyle(dirColor)
+                                        .padding(.horizontal, 9).padding(.vertical, 5)
+                                        .background(dirColor.opacity(0.11), in: Capsule())
+                                        .overlay(Capsule().strokeBorder(dirColor.opacity(0.24)))
+                                    if !t.grade.isEmpty {
+                                        Badge(text: t.grade, color: t.grade == "A+" ? Palette.mint : Palette.blue)
+                                    }
+                                    if t.qt.enabled {
+                                        let qtLabel = [t.qt.profile, t.qt.dailyQuarter].filter { !$0.isEmpty }.joined(separator: " · ")
+                                        Text(verbatim: qtLabel.isEmpty ? "QT" : qtLabel)
+                                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                            .foregroundStyle(Palette.blue)
+                                            .padding(.horizontal, 9).padding(.vertical, 5)
+                                            .background(Palette.blue.opacity(0.11), in: Capsule())
+                                            .overlay(Capsule().strokeBorder(Palette.blue.opacity(0.22)))
+                                    }
                                 }
-                                Text(t.setupID == nil ? L10n.text(t.setupName) : t.setupName).font(.system(size: 16, weight: .medium)).foregroundStyle(Palette.muted)
+                                Text(t.setupID == nil ? L10n.text(t.setupName) : t.setupName).font(.system(size: 15, weight: .medium)).foregroundStyle(Palette.muted)
                                 HStack(spacing: 8) {
                                     Image(systemName: "calendar")
                                     Text(Format.date(t.date, calendar: store.preferences.calendar, time: true))
-                                    Text("· " + L10n.text(t.session))
+                                    if !t.session.isEmpty { Text("· " + L10n.text(t.session)) }
+                                    if !t.bias.isEmpty {
+                                        let relText = t.biasRelation.isEmpty ? "" : " (\(t.biasRelation))"
+                                        Text("· \(t.bias)\(relText)")
+                                            .foregroundStyle(t.bias == "Bullish" ? Palette.mint : t.bias == "Bearish" ? Palette.red : Palette.muted)
+                                    }
                                 }.font(.system(size: 11)).foregroundStyle(Palette.muted)
                             }
                             Spacer(minLength: 0)
-                            VStack(alignment: .trailing, spacing: 9) {
-                                Text(L10n.text("Net PnL")).font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.muted)
-                                Text(Format.money(t.netPnL, currency: store.preferences.currency)).font(.system(size: 32, weight: .semibold, design: .rounded)).tracking(-1).monospacedDigit().foregroundStyle(Palette.outcome(t.netPnL)).lineLimit(1).minimumScaleFactor(0.7)
-                                Text(Format.r(t.rMultiple)).font(.system(size: 20, weight: .medium, design: .rounded)).monospacedDigit().foregroundStyle(Palette.outcome(t.rMultiple ?? 0))
-                            }.padding(.top, 7)
-                        }.padding(.vertical, 8)
+                            VStack(alignment: .trailing, spacing: 8) {
+                                Text(L10n.text("Net PnL")).font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(1).foregroundStyle(Palette.muted)
+                                Text(Format.money(t.netPnL, currency: store.currency(for: t.id))).font(.system(size: 34, weight: .semibold, design: .rounded)).tracking(-1).monospacedDigit().foregroundStyle(Palette.outcome(t.netPnL)).lineLimit(1).minimumScaleFactor(0.7)
+                                Text(Format.r(t.rMultiple)).font(.system(size: 19, weight: .medium, design: .rounded)).monospacedDigit().foregroundStyle(Palette.outcome(t.rMultiple ?? 0))
+                            }.padding(.top, 4)
+                        }
+                        .padding(22)
+                        .background(
+                            ZStack(alignment: .topTrailing) {
+                                RoundedRectangle(cornerRadius: 16).fill(Palette.panel)
+                                RadialGradient(colors: [Palette.outcome(t.netPnL).opacity(0.08), .clear], center: .topTrailing, startRadius: 4, endRadius: 280)
+                                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                            }
+                        )
+                        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Palette.line.opacity(0.85), lineWidth: 1))
+                        .overlay(alignment: .top) {
+                            RoundedRectangle(cornerRadius: 1)
+                                .fill(LinearGradient(colors: [Palette.outcome(t.netPnL).opacity(0.38), .clear], startPoint: .trailing, endPoint: .leading))
+                                .frame(height: 1.5).padding(.horizontal, 18)
+                        }
                         Panel {
                             HStack(spacing: 12) {
                                 Image(systemName: t.compliant ? "checkmark.shield" : "exclamationmark.shield").font(.system(size: 22, weight: .light)).foregroundStyle(Palette.classification(t.classification))
@@ -62,19 +99,20 @@ struct TradeDetailView: View {
                         Panel(title: "EXECUTION SEQUENCE") {
                             ScrollView(.horizontal) {
                                 HStack(spacing: 0) {
-                                node("HTF", t.bias, t.htfAligned)
-                                node("LIQUIDITY", t.liquidityTaken.first ?? "Unspecified", t.sweepValid)
-                                node("QT", t.qt.enabled ? t.qt.dailyQuarter : "Not used", t.hasQT)
-                                node("SSMT", t.ssmt.confirmation, t.hasSSMT)
-                                node("CRT", t.crt.enabled ? t.crt.timeframe : "Not used", t.hasCRT)
-                                node("CISD", t.entryTimeframe, t.confirmations.contains("CISD"))
-                                node("ENTRY", t.direction, t.compliant)
-                                node("TARGET", t.drawOnLiquidity.isEmpty ? "Unspecified" : t.drawOnLiquidity, !t.brokenRules.contains("Ignored target"), last: true)
-                                }.padding(.bottom, 4)
+                                    node("HTF BIAS", t.bias.isEmpty ? "None" : t.bias, t.htfAligned)
+                                    node("LIQUIDITY", t.liquidityTaken.first ?? "None", t.sweepValid)
+                                    let qtNode = [t.qt.profile, t.qt.dailyQuarter].filter { !$0.isEmpty }.joined(separator: " ")
+                                    node("QT CYCLE", t.qt.enabled ? (qtNode.isEmpty ? "QT" : qtNode) : "Off", t.hasQT)
+                                    node("SSMT", t.ssmt.confirmation, t.hasSSMT)
+                                    node("CRT", t.crt.enabled ? (t.crt.timeframe.isEmpty ? "On" : t.crt.timeframe) : "Off", t.hasCRT)
+                                    node("CISD", t.entryTimeframe.isEmpty ? "—" : t.entryTimeframe, t.confirmations.contains("CISD"))
+                                    node("ENTRY", t.direction, t.compliant)
+                                    node("TARGET", t.drawOnLiquidity.isEmpty ? "None" : t.drawOnLiquidity, !t.brokenRules.contains("Ignored target"), last: true)
+                                }.padding(.vertical, 4)
                             }
                             Text(L10n.text("Green: confirmed · Amber: absent or unconfirmed · Red: broken execution. These are your recorded observations.")).font(.system(size: 10)).foregroundStyle(Palette.muted)
                         }
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 14) { MetricCard(title: "Overall process", value: "\(Format.number(t.scores.overall, digits: 0))/100"); MetricCard(title: "Risk", value: t.riskDollars.map { Format.money($0, currency: store.preferences.currency) } ?? "—"); MetricCard(title: "Planned RR", value: t.plannedRR.map { Format.number($0) } ?? "—"); MetricCard(title: "Duration", value: t.duration.map { "\(Int($0 / 60)) min" } ?? "—") }
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 14) { MetricCard(title: "Overall process", value: "\(Format.number(t.scores.overall, digits: 0))/100"); MetricCard(title: "Risk", value: t.riskDollars.map { Format.money($0, currency: store.currency(for: t.id)) } ?? "—"); MetricCard(title: "Planned RR", value: t.plannedRR.map { Format.number($0) } ?? "—"); MetricCard(title: "Duration", value: t.duration.map { "\(Int($0 / 60)) min" } ?? "—") }
                         Panel(title: "THESIS & LESSON") {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 310), spacing: 16)], alignment: .leading, spacing: 16) {
                                 readNote("Trade thesis", t.notes.thesis); readNote("Key lesson", t.notes.lesson)
@@ -98,17 +136,30 @@ struct TradeDetailView: View {
                         Panel(title: "CONTEXT & EXECUTION") {
                             detailRow("Prices", "Giriş \(numeric(t.entryPrice)) · Stop \(numeric(t.stopLoss)) · Kâr al \(numeric(t.takeProfit)) · Çıkış \(numeric(t.exitPrice))")
                             detailRow("Size / fees", "\(numeric(t.positionSize)) · \(Format.money(t.fees, currency: store.currency(for: t.id))) masraf")
-                            detailRow("HTF Bias & İlişki", "\(t.bias) · \(t.biasRelation) · News: \(t.newsDriver)")
+                            let biasParts = [t.bias, t.biasRelation, t.newsDriver.isEmpty ? "" : "News: \(t.newsDriver)"].filter { !$0.isEmpty }
+                            detailRow("HTF Bias & İlişki", biasParts.joined(separator: " · "))
                             if !t.narrative.isEmpty { detailRow("Narrative", t.narrative) }
                             detailRow("Context timeframes", t.contextTimeframes.joined(separator: ", "))
                             detailRow("Draw on Liquidity", t.drawOnLiquidity)
                             detailRow("Liquidity taken", t.liquidityTaken.joined(separator: ", "))
-                            detailRow("QT", "\(t.qt.profile) · HTF \(t.qt.higherQuarter) · Daily \(t.qt.dailyQuarter) · 90m \(t.qt.cycle90) · 22.5m \(t.qt.cycle22) · \(t.qt.phase) · \(t.qt.trueOpenAnchor) (\(t.qt.trueOpenLocation))")
-                            detailRow("MMXM", t.mmxm.model + (t.mmxm.valid ? " · Valid" : " · Unconfirmed"))
-                            detailRow("PO3", t.po3.phase + " · Manipulation " + t.po3.manipulationDirection + (t.po3.valid ? " · Valid" : " · Unconfirmed"))
-                            detailRow("SSMT", t.ssmt.type + " · " + t.ssmt.markets.joined(separator: ", ") + (t.hasSSMT ? " · Valid" : " · Unconfirmed"))
-                            detailRow("TSMO", t.tsmo + (t.tsmoValid ? " · Valid" : " · Unconfirmed"))
-                            detailRow("CRT", "\(t.crt.timeframe) · Range \(numeric(t.crt.low)) – \(numeric(t.crt.high)) · \(t.crt.liquidityTaken) Sweep")
+                            let qtParts = [
+                                t.qt.profile,
+                                t.qt.higherQuarter.isEmpty ? "" : "HTF \(t.qt.higherQuarter)",
+                                t.qt.dailyQuarter.isEmpty ? "" : "Daily \(t.qt.dailyQuarter)",
+                                t.qt.cycle90.isEmpty ? "" : "90m \(t.qt.cycle90)",
+                                t.qt.cycle22.isEmpty ? "" : "22.5m \(t.qt.cycle22)",
+                                t.qt.phase,
+                                [t.qt.trueOpenAnchor, t.qt.trueOpenLocation.isEmpty ? "" : "(\(t.qt.trueOpenLocation))"].filter { !$0.isEmpty }.joined(separator: " ")
+                            ].filter { !$0.isEmpty }
+                            detailRow("QT", t.qt.enabled ? (qtParts.isEmpty ? "Enabled" : qtParts.joined(separator: " · ")) : "Off")
+                            detailRow("MMXM", t.mmxm.model == "None" ? "None" : t.mmxm.model + (t.mmxm.valid ? " · Valid" : " · Unconfirmed"))
+                            let po3Parts = [t.po3.phase, t.po3.manipulationDirection.isEmpty ? "" : "Manipulation \(t.po3.manipulationDirection)", t.po3.valid ? "Valid" : ""].filter { !$0.isEmpty }
+                            detailRow("PO3", po3Parts.joined(separator: " · "))
+                            let ssmtParts = [t.ssmt.confirmation == "Yes" ? t.ssmt.type : t.ssmt.confirmation, t.ssmt.markets.joined(separator: ", "), t.ssmt.confirmation == "Yes" ? (t.hasSSMT ? "Valid" : "Unconfirmed") : ""].filter { !$0.isEmpty }
+                            detailRow("SSMT", ssmtParts.joined(separator: " · "))
+                            detailRow("TSMO", t.tsmo == "Yes" ? (t.tsmo + (t.tsmoValid ? " · Valid" : " · Unconfirmed")) : t.tsmo)
+                            let crtParts = [t.crt.timeframe, (t.crt.low != nil || t.crt.high != nil) ? "Range \(numeric(t.crt.low)) – \(numeric(t.crt.high))" : "", t.crt.liquidityTaken.isEmpty ? "" : "\(t.crt.liquidityTaken) Sweep"].filter { !$0.isEmpty }
+                            detailRow("CRT", t.crt.enabled ? (crtParts.isEmpty ? "Enabled" : crtParts.joined(separator: " · ")) : "Off")
                             detailRow("Confirmations", t.confirmations.joined(separator: ", "))
                             detailRow("Tags", t.tags.joined(separator: ", "))
                         }
@@ -211,11 +262,23 @@ struct TradeDetailView: View {
     }
     private func node(_ title: String, _ text: String, _ valid: Bool, last: Bool = false) -> some View {
         let color = valid ? Palette.mint : title == "ENTRY" ? Palette.red : Palette.amber
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 0) { Circle().strokeBorder(color, lineWidth: 1).background(Circle().fill(color.opacity(0.12))).frame(width: 29, height: 29).overlay(Image(systemName: valid ? "checkmark" : "minus").font(.system(size: 9)).foregroundStyle(color)); Rectangle().fill(last ? .clear : Palette.muted.opacity(0.2)).frame(height: 1) }
-            Text(L10n.text(title)).font(.system(size: 10, weight: .semibold)).tracking(0.4)
-            Text(L10n.text(text)).font(.system(size: 10)).foregroundStyle(Palette.muted).lineLimit(2).frame(height: 30, alignment: .top)
-        }.frame(width: 108, alignment: .leading)
+        return VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 0) {
+                Circle()
+                    .strokeBorder(color.opacity(valid ? 0.9 : 0.7), lineWidth: 1.5)
+                    .background(Circle().fill(color.opacity(valid ? 0.16 : 0.08)))
+                    .frame(width: 30, height: 30)
+                    .overlay(Image(systemName: valid ? "checkmark" : "minus").font(.system(size: 10, weight: .bold)).foregroundStyle(color))
+                    .shadow(color: valid ? color.opacity(0.28) : .clear, radius: 5, x: 0, y: 0)
+                if !last {
+                    Rectangle()
+                        .fill(LinearGradient(colors: [color.opacity(valid ? 0.5 : 0.2), Palette.line.opacity(0.45)], startPoint: .leading, endPoint: .trailing))
+                        .frame(height: 1.5)
+                }
+            }
+            Text(verbatim: title).font(.system(size: 9, weight: .semibold, design: .monospaced)).tracking(0.6).foregroundStyle(Palette.ink.opacity(0.9))
+            Text(verbatim: text).font(.system(size: 10, weight: .medium)).foregroundStyle(valid ? Palette.ink.opacity(0.8) : Palette.muted).lineLimit(2).frame(height: 28, alignment: .top)
+        }.frame(width: 112, alignment: .leading)
     }
 }
 
@@ -228,18 +291,32 @@ struct TradeSupplementEditor: View {
     @State private var newFill = ExecutionFill()
     @State private var newChecklistLabel = ""
     @State private var newChecklistPhase = "Öncesi"
+    @State private var errorMessage: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Gerçekleşmeler (Fills) & Kontrol Listesi").font(.title2.weight(.bold))
                 Spacer()
-                Button("İptal") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("İptal") { dismiss() }
+                    .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                    .keyboardShortcut(.cancelAction)
                 Button("Kaydet") {
-                    save()
-                    dismiss()
+                    if save() { dismiss() }
                 }
-                .buttonStyle(EdgeButtonStyle())
+                .buttonStyle(EdgeButtonStyle(compact: true))
+                .keyboardShortcut("s", modifiers: .command)
+            }
+
+            if let errorMessage {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.amber)
+                    Text(errorMessage).font(.caption).foregroundStyle(Palette.amber)
+                    Spacer()
+                    Button("Kapat") { self.errorMessage = nil }.buttonStyle(.plain).font(.caption2)
+                }
+                .padding(10)
+                .background(Palette.amber.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
             }
 
             HStack(spacing: 20) {
@@ -282,11 +359,15 @@ struct TradeSupplementEditor: View {
                     .frame(width: 100)
 
                 Button("Ekle") {
-                    guard newFill.quantity > 0, newFill.price > 0 else { return }
+                    guard newFill.quantity.isFinite, newFill.quantity > 0, newFill.price.isFinite, newFill.price > 0, newFill.fee.isFinite, newFill.fee >= 0 else {
+                        errorMessage = "Emir eklemek için pozitif miktar, pozitif fiyat ve negatif olmayan komisyon girin."
+                        return
+                    }
+                    errorMessage = nil
                     supplement.fills.append(newFill)
                     newFill = ExecutionFill()
                 }
-                .buttonStyle(EdgeButtonStyle(prominent: false))
+                .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
             }
 
             List {
@@ -299,6 +380,13 @@ struct TradeSupplementEditor: View {
                         }
                         Spacer()
                         Text("Masraf: \(fill.fee, specifier: "%.2f")").font(.caption)
+                        Button {
+                            supplement.fills.removeAll { $0.id == fill.id }
+                        } label: {
+                            Image(systemName: "trash").font(.caption).foregroundStyle(Palette.red)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Gerçekleşmeyi sil")
                     }
                 }
                 .onDelete { idx in
@@ -306,14 +394,35 @@ struct TradeSupplementEditor: View {
                 }
             }
             .listStyle(.plain)
-            .frame(height: 140)
+            .frame(height: 130)
 
             Divider()
 
-            Text("Kontrol Listesi Yanıtları").font(.headline)
+            HStack {
+                Text("Kontrol Listesi Yanıtları").font(.headline)
+                Spacer()
+                if !store.workspace.templates.isEmpty {
+                    Menu {
+                        ForEach(store.workspace.templates) { template in
+                            Button(template.name) {
+                                for item in template.items {
+                                    if !supplement.checklist.contains(where: { $0.label == item.label && $0.phase == item.phase }) {
+                                        supplement.checklist.append(ChecklistAnswer(label: item.label, phase: item.phase, answer: true))
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Şablondan Yükle", systemImage: "checklist")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                }
+            }
             HStack(spacing: 8) {
                 TextField("Kontrol maddesi", text: $newChecklistLabel)
                     .textFieldStyle(EdgeTextFieldStyle())
+                    .onSubmit { addChecklistItem() }
 
                 Picker("Aşama", selection: $newChecklistPhase) {
                     Text("Öncesi").tag("Öncesi")
@@ -321,13 +430,9 @@ struct TradeSupplementEditor: View {
                 }
                 .frame(width: 100)
 
-                Button("Madde Ekle") {
-                    let clean = newChecklistLabel.trimmingCharacters(in: .whitespaces)
-                    guard !clean.isEmpty else { return }
-                    supplement.checklist.append(ChecklistAnswer(label: clean, phase: newChecklistPhase, answer: true))
-                    newChecklistLabel = ""
-                }
-                .buttonStyle(EdgeButtonStyle(prominent: false))
+                Button("Madde Ekle") { addChecklistItem() }
+                    .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                    .disabled(newChecklistLabel.trimmingCharacters(in: .whitespaces).isEmpty)
             }
 
             List {
@@ -341,6 +446,13 @@ struct TradeSupplementEditor: View {
                         }
                         Spacer()
                         Badge(text: item.phase, color: item.phase == "Öncesi" ? Palette.blue : Palette.mint)
+                        Button {
+                            supplement.checklist.removeAll { $0.id == item.id }
+                        } label: {
+                            Image(systemName: "trash").font(.caption).foregroundStyle(Palette.red)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Maddeyi sil")
                     }
                 }
                 .onDelete { idx in
@@ -348,11 +460,13 @@ struct TradeSupplementEditor: View {
                 }
             }
             .listStyle(.plain)
-            .frame(height: 140)
+            .frame(height: 130)
         }
         .padding(24)
-        .frame(width: 680, height: 680)
+        .frame(width: 700, height: 700)
         .background(Palette.canvas)
+        .foregroundStyle(Palette.ink)
+        .tint(Palette.mint)
         .onAppear {
             if let existing = store.workspace.supplements[tradeID] {
                 supplement = existing
@@ -360,13 +474,23 @@ struct TradeSupplementEditor: View {
         }
     }
 
-    private func save() {
+    private func addChecklistItem() {
+        let clean = newChecklistLabel.trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty else { return }
+        supplement.checklist.append(ChecklistAnswer(label: clean, phase: newChecklistPhase, answer: true))
+        newChecklistLabel = ""
+    }
+
+    private func save() -> Bool {
         do {
             try store.updateWorkspace { ws in
                 ws.supplements[tradeID] = supplement
             }
+            errorMessage = nil
+            return true
         } catch {
-            store.report(error)
+            errorMessage = error.localizedDescription
+            return false
         }
     }
 }

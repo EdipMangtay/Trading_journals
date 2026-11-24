@@ -9,13 +9,23 @@ struct AnalyticsView: View {
     @State private var dimension = AnalysisDimension.setup
     @State private var metric = GroupMetric.averageR
     @State private var curveMode = CurveMode.r
+    @State private var newSetupDraft: PlaybookDraft?
     var body: some View {
-        let data = filter.apply(store.scopedTrades, calendar: store.preferences.calendar), p = AnalyticsEngine.performance(data)
+        let unfiltered = filter.isEmpty
+        let data = unfiltered ? store.scopedTrades : filter.apply(store.scopedTrades, calendar: store.preferences.calendar)
+        let p = unfiltered ? store.scopedPerformance : AnalyticsEngine.performance(data)
         let groups = AnalyticsEngine.groups(data, by: dimension, calendar: store.preferences.calendar)
-        let curve = AnalyticsEngine.curve(data)
+        let curve = unfiltered ? store.scopedCurve : AnalyticsEngine.curve(data)
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                PageHeader(eyebrow: "Research desk", title: mode == .setups ? "Find the combinations that matter." : mode == .statistics ? "Your performance, precisely." : "Evidence over intuition.", subtitle: "Measure confirmations against your own execution history.")
+                HStack(alignment: .top, spacing: 20) {
+                    PageHeader(eyebrow: "Research desk", title: mode == .setups ? "Find the combinations that matter." : mode == .statistics ? "Your performance, precisely." : "Evidence over intuition.", subtitle: "Measure confirmations against your own execution history.")
+                    if mode == .setups {
+                        Spacer(minLength: 8)
+                        Button { newSetupDraft = PlaybookDraft() } label: { Label(L10n.text("New setup"), systemImage: "plus") }
+                            .buttonStyle(EdgeButtonStyle()).fixedSize()
+                    }
+                }
                 FilterBar(allTrades: store.scopedTrades, calendar: store.preferences.calendar, filter: $filter)
                 if data.isEmpty { EmptyJournal(title: "No observations yet.", subtitle: "Add trades or adjust filters to begin your analysis.") }
                 else {
@@ -47,7 +57,7 @@ struct AnalyticsView: View {
                             VStack(alignment: .leading, spacing: 12) { dimensionPicker; metricPicker }
                         }
                         GroupBarChart(groups: groups, metric: metric)
-                        GroupMetricsTable(groups: groups, currency: store.preferences.currency)
+                        GroupMetricsTable(groups: groups, currency: store.accountCurrency)
                     }
                     if mode != .statistics {
                         Text(L10n.text("CONFIRMATION CONTRIBUTION")).font(.system(size: 11, weight: .semibold, design: .monospaced)).tracking(1.5)
@@ -64,7 +74,7 @@ struct AnalyticsView: View {
                         edgeMatrix(data)
                     }
                     compliance(data)
-                    Panel(title: "SESSION PERFORMANCE") { GroupMetricsTable(groups: AnalyticsEngine.groups(data, by: .session, calendar: store.preferences.calendar), currency: store.preferences.currency) }
+                    Panel(title: "SESSION PERFORMANCE") { GroupMetricsTable(groups: AnalyticsEngine.groups(data, by: .session, calendar: store.preferences.calendar), currency: store.accountCurrency) }
                     Panel(title: "ENTRY TIME HEATMAP") { PerformanceHeatmap(trades: data, calendar: store.preferences.calendar) }
                     Panel(title: "METRIC DEFINITIONS") {
                         Text(L10n.text("All PnL metrics use gross PnL minus fees. Win/loss rates include breakeven trades in the denominator. Expectancy is net PnL ÷ trades; expectancy in R and average R both equal total recorded R ÷ trades with R. Average winning R uses winners only. Profit factor is gross net winners ÷ absolute net losers; ∞ means wins with no losses, and — means undefined. Drawdown starts from zero cumulative PnL. Percentage equity uses the configured starting account size, without deposits or withdrawals. Streaks reset on breakeven. Session labels are recorded manually; time buckets use the configured trading time zone. Multi-label groups can overlap.")).font(.caption).foregroundStyle(Palette.muted).textSelection(.enabled)
@@ -72,6 +82,7 @@ struct AnalyticsView: View {
                 }
             }.pagePadding()
         }
+        .sheet(item: $newSetupDraft) { draft in PlaybookEditor(initial: draft).environment(store) }
     }
     private var curveTabs: some View {
         SegmentedTabs(options: CurveMode.allCases, selection: $curveMode, title: { $0.rawValue })
@@ -182,7 +193,7 @@ struct GroupMetricsTable: View {
 struct MistakesView: View {
     @Environment(JournalStore.self) private var store
     var body: some View {
-        let mistakes = AnalyticsEngine.mistakes(store.trades)
+        let mistakes = AnalyticsEngine.mistakes(store.scopedTrades)
         ScrollView { VStack(alignment: .leading, spacing: 24) {
             PageHeader(eyebrow: "Process audit", title: "The cost of breaking your rules.", subtitle: "Profitable mistakes are still mistakes. Learn from the process.")
             if mistakes.isEmpty { EmptyJournal(title: "No rule violations recorded.", subtitle: "Honest process reviews are the foundation of a useful journal.") }
@@ -197,7 +208,7 @@ struct MistakesView: View {
                         }
                         Spacer(minLength: 12)
                         VStack(alignment: .trailing, spacing: 6) { Text("TOPLAM R").font(.system(size: 9, weight: .medium)).foregroundStyle(Palette.muted); Text(Format.r(mistake.performance.totalR)).font(.system(size: 23, weight: .semibold, design: .rounded)).foregroundStyle(Palette.amber).monospacedDigit() }
-                        VStack(alignment: .trailing, spacing: 6) { Text(L10n.text("NET PNL")).font(.system(size: 9, weight: .medium)).foregroundStyle(Palette.muted); Text(Format.money(mistake.performance.netPnL, currency: store.preferences.currency)).font(.system(size: 20, weight: .medium, design: .rounded)).foregroundStyle(Palette.muted).monospacedDigit() }
+                        VStack(alignment: .trailing, spacing: 6) { Text(L10n.text("NET PNL")).font(.system(size: 9, weight: .medium)).foregroundStyle(Palette.muted); Text(Format.money(mistake.performance.netPnL, currency: store.accountCurrency)).font(.system(size: 20, weight: .medium, design: .rounded)).foregroundStyle(Palette.muted).monospacedDigit() }
                     }
                     if mistake.performance.netPnL > 0 { Label(L10n.text("Positive outcome, poor process"), systemImage: "exclamationmark.triangle").foregroundStyle(Palette.amber).font(.caption) }
                 }

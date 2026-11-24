@@ -54,7 +54,7 @@ struct TradeScatterChart: View {
         }
     }
     private func yFormatted(_ number: Double) -> String {
-        vertical == .r ? Format.r(number) : Format.money(number, currency: store.preferences.currency)
+        vertical == .r ? Format.r(number) : Format.money(number, currency: store.accountCurrency)
     }
     private func compact(_ number: Double) -> String {
         number.formatted(.number.locale(L10n.locale).notation(.compactName).precision(.fractionLength(0...1)))
@@ -263,7 +263,7 @@ struct TradeScatterChart: View {
             }
         }
         .chartXAxisLabel(horizontal.axisTitle, position: .bottom, alignment: .center, spacing: 10)
-        .chartYAxisLabel(vertical == .r ? "KAYDEDİLEN R" : "NET K/Z · \(store.preferences.currency)", position: .leading, alignment: .center, spacing: 8)
+        .chartYAxisLabel(vertical == .r ? "KAYDEDİLEN R" : "NET K/Z · \(store.accountCurrency)", position: .leading, alignment: .center, spacing: 8)
         .chartPlotStyle { plot in plot.background(Palette.canvas.opacity(0.32)).overlay(Rectangle().strokeBorder(Palette.muted.opacity(0.08))) }
         .chartOverlay { proxy in
             GeometryReader { geometry in

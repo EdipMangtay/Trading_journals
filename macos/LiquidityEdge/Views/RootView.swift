@@ -87,14 +87,25 @@ struct RootView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 11) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12).fill(LinearGradient(colors: [Palette.mint.opacity(0.16), Palette.mint.opacity(0.035)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.mint.opacity(0.3))
-                    Image(systemName: "waveform.path").font(.system(size: 23, weight: .medium)).foregroundStyle(Palette.mint)
+                    Circle()
+                        .fill(RadialGradient(colors: [Palette.mint.opacity(0.24), .clear], center: .center, startRadius: 2, endRadius: 28))
+                        .frame(width: 52, height: 52)
+                    RoundedRectangle(cornerRadius: 12).fill(LinearGradient(colors: [Palette.mint.opacity(0.2), Palette.mint.opacity(0.04)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.mint.opacity(0.35), lineWidth: 1)
+                    Image(systemName: "waveform.path").font(.system(size: 22, weight: .medium)).foregroundStyle(Palette.mint)
                 }.frame(width: 39, height: 41)
                 if !collapsed {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(verbatim: "LIQUIDITY").tracking(2).foregroundStyle(Palette.ink)
-                        Text(verbatim: "EDGE").tracking(4).foregroundStyle(Palette.mint)
+                        HStack(spacing: 6) {
+                            Text(verbatim: "EDGE").tracking(4).foregroundStyle(Palette.mint)
+                            Text(verbatim: "v6")
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .foregroundStyle(Palette.mint)
+                                .padding(.horizontal, 5).padding(.vertical, 1.5)
+                                .background(Palette.mint.opacity(0.12), in: Capsule())
+                                .overlay(Capsule().strokeBorder(Palette.mint.opacity(0.28), lineWidth: 0.8))
+                        }
                     }.font(.system(size: 11, weight: .semibold, design: .monospaced))
                 }
             }.padding(.horizontal, collapsed ? 17 : 22).padding(.top, 39).padding(.bottom, 27)
@@ -189,7 +200,16 @@ struct RootView: View {
                 Text("ÇALIŞMA ALANI").font(.system(size: 8, weight: .semibold)).tracking(1.1).foregroundStyle(Palette.muted)
                 Text(L10n.text(page.rawValue)).font(.system(size: 13, weight: .semibold)).accessibilityAddTraits(.isHeader)
             }
-            Spacer(minLength: 12)
+            Spacer(minLength: 8)
+            if !store.scopedTrades.isEmpty {
+                let net = store.scopedPerformance.netPnL
+                let today = store.scopedTodayPnL
+                ViewThatFits(in: .horizontal) {
+                    topbarTelemetryButton(net: net, today: abs(today) >= 0.01 ? today : nil)
+                    topbarTelemetryButton(net: net, today: nil)
+                    EmptyView()
+                }
+            }
             AccountPicker()
             Rectangle().fill(Palette.line).frame(width: 1, height: 21).padding(.horizontal, 3)
             Button(action: showSearch) {
@@ -203,6 +223,31 @@ struct RootView: View {
             Button { editor = EditorRoute() } label: { Label(L10n.text("New trade"), systemImage: "plus") }.buttonStyle(EdgeButtonStyle()).help("Yeni işlem · ⌘N")
         }.padding(.horizontal, 28).frame(height: 68).background(Palette.panel.opacity(0.3))
             .overlay(alignment: .bottom) { Rectangle().fill(Palette.line.opacity(0.65)).frame(height: 1) }
+    }
+    private func topbarTelemetryButton(net: Double, today: Double?) -> some View {
+        Button { page = .accounts } label: {
+            HStack(spacing: 7) {
+                Circle().fill(Palette.outcome(net)).frame(width: 6, height: 6)
+                Text("NET").font(.system(size: 8, weight: .semibold, design: .monospaced)).foregroundStyle(Palette.muted)
+                Text(verbatim: Format.money(net, currency: store.accountCurrency))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded)).monospacedDigit()
+                    .foregroundStyle(Palette.outcome(net))
+                if let today {
+                    Rectangle().fill(Palette.line).frame(width: 1, height: 12)
+                    Text("BUGÜN").font(.system(size: 8, weight: .semibold, design: .monospaced)).foregroundStyle(Palette.muted)
+                    Text(verbatim: (today > 0 ? "+" : "") + Format.money(today, currency: store.accountCurrency))
+                        .font(.system(size: 11, weight: .semibold, design: .rounded)).monospacedDigit()
+                        .foregroundStyle(Palette.outcome(today))
+                }
+            }
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 11).padding(.vertical, 6)
+            .background(Palette.field.opacity(0.85), in: Capsule())
+            .overlay(Capsule().strokeBorder(Palette.line.opacity(0.85), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .help("Hesaplar ve Risk özetine git")
     }
     private var demoBanner: some View {
         HStack(spacing: 12) {
@@ -283,7 +328,13 @@ struct RootView: View {
                                     Image(systemName: trade.direction == "Long" ? "arrow.up.right" : "arrow.down.right").foregroundStyle(trade.direction == "Long" ? Palette.mint : Palette.red).frame(width: 19)
                                     VStack(alignment: .leading, spacing: 4) { Text(verbatim: trade.instrument).fontWeight(.semibold); Text(trade.setupID == nil ? L10n.text(trade.setupName) : trade.setupName).font(.system(size: 10)).foregroundStyle(Palette.muted) }
                                     Spacer()
-                                    VStack(alignment: .trailing, spacing: 4) { Text(Format.r(trade.rMultiple)).foregroundStyle(Palette.outcome(trade.netPnL)).monospacedDigit(); Text(Format.date(trade.date, calendar: store.preferences.calendar)).font(.system(size: 10)).foregroundStyle(Palette.muted) }
+                                    VStack(alignment: .trailing, spacing: 4) {
+                                        HStack(spacing: 8) {
+                                            Text(verbatim: Format.money(trade.netPnL, currency: store.currency(for: trade.id))).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(Palette.outcome(trade.netPnL))
+                                            Text(Format.r(trade.rMultiple)).font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundStyle(Palette.outcome(trade.rMultiple ?? 0))
+                                        }.monospacedDigit()
+                                        Text(Format.date(trade.date, calendar: store.preferences.calendar)).font(.system(size: 10)).foregroundStyle(Palette.muted)
+                                    }
                                 }.font(.system(size: 13)).padding(12)
                             }.buttonStyle(NavigationButtonStyle())
                         }
