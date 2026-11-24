@@ -374,24 +374,18 @@ struct PerformanceHeatmap: View {
                         ForEach(weekdays, id: \.self) { day in
                             HStack(spacing: 6) {
                                 ForEach(range, id: \.self) { slot in
-                                    let performance = values[day * 100 + slot]
-                                    let averageR = performance?.averageR
-                                    VStack(spacing: 4) {
-                                        Text(averageR.map { Format.number($0, digits: 1) } ?? (performance == nil ? "·" : "—"))
-                                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                        if let performance { Text("n=\(performance.count)").font(.system(size: 8)).opacity(0.7) }
-                                    }
-                                    .foregroundStyle(averageR.map(Palette.outcome) ?? Palette.muted.opacity(performance == nil ? 0.25 : 0.8))
-                                    .frame(width: cellWidth, height: 46)
-                                    .background(averageR.map { Palette.outcome($0).opacity(min(0.3, 0.08 + abs($0) * 0.07)) } ?? Palette.canvas.opacity(0.33), in: RoundedRectangle(cornerRadius: 8))
-                                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(hoveredCellKey == (day * 100 + slot) ? Palette.mint : (averageR.map { Palette.outcome($0).opacity(0.18) } ?? Palette.muted.opacity(0.055)), lineWidth: hoveredCellKey == (day * 100 + slot) ? 1.5 : 1))
-                                    .scaleEffect(hoveredCellKey == (day * 100 + slot) ? 1.08 : 1.0)
-                                    .zIndex(hoveredCellKey == (day * 100 + slot) ? 10 : 1)
-                                    .onHover { h in hoveredCellKey = h ? (day * 100 + slot) : nil }
-                                    .animation(.spring(response: 0.2, dampingFraction: 0.72), value: hoveredCellKey)
-                                    .help("\(L10n.text(calendar.weekdaySymbols[day - 1])) · \(time(slot)) · n = \(performance?.count ?? 0) · \(Format.r(averageR))")
-                                    .accessibilityElement(children: .ignore)
-                                    .accessibilityLabel("\(L10n.text(calendar.weekdaySymbols[day - 1])), \(time(slot)), \(performance?.count ?? 0) işlem, \(Format.r(averageR))")
+                                    let key = day * 100 + slot
+                                    let performance = values[key]
+                                    let dayName = L10n.text(calendar.weekdaySymbols[day - 1])
+                                    let timeLabel = time(slot)
+                                    HeatmapCell(
+                                        performance: performance,
+                                        isHovered: hoveredCellKey == key,
+                                        cellWidth: cellWidth,
+                                        dayName: dayName,
+                                        timeLabel: timeLabel,
+                                        onHover: { h in hoveredCellKey = h ? key : nil }
+                                    )
                                 }
                             }
                         }
@@ -413,5 +407,53 @@ struct PerformanceHeatmap: View {
                 }
             }.font(.system(size: 9)).foregroundStyle(Palette.muted)
         }
+    }
+}
+
+private struct HeatmapCell: View {
+    let performance: Performance?
+    let isHovered: Bool
+    let cellWidth: CGFloat
+    let dayName: String
+    let timeLabel: String
+    let onHover: (Bool) -> Void
+
+    private var averageR: Double? { performance?.averageR }
+
+    private var cellText: String {
+        averageR.map { Format.number($0, digits: 1) } ?? (performance == nil ? "·" : "—")
+    }
+
+    private var cellColor: Color {
+        averageR.map(Palette.outcome) ?? Palette.muted.opacity(performance == nil ? 0.25 : 0.8)
+    }
+
+    private var cellBackground: Color {
+        averageR.map { Palette.outcome($0).opacity(min(0.3, 0.08 + abs($0) * 0.07)) } ?? Palette.canvas.opacity(0.33)
+    }
+
+    private var cellBorder: Color {
+        isHovered ? Palette.mint : (averageR.map { Palette.outcome($0).opacity(0.18) } ?? Palette.muted.opacity(0.055))
+    }
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(cellText)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            if let performance {
+                Text("n=\(performance.count)").font(.system(size: 8)).opacity(0.7)
+            }
+        }
+        .foregroundStyle(cellColor)
+        .frame(width: cellWidth, height: 46)
+        .background(cellBackground, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(cellBorder, lineWidth: isHovered ? 1.5 : 1))
+        .scaleEffect(isHovered ? 1.08 : 1.0)
+        .zIndex(isHovered ? 10 : 1)
+        .onHover(perform: onHover)
+        .animation(.spring(response: 0.2, dampingFraction: 0.72), value: isHovered)
+        .help("\(dayName) · \(timeLabel) · n = \(performance?.count ?? 0) · \(Format.r(averageR))")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(dayName), \(timeLabel), \(performance?.count ?? 0) işlem, \(Format.r(averageR))")
     }
 }

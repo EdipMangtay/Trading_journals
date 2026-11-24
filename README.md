@@ -1,50 +1,45 @@
-# LIQUIDITY EDGE / Trading Journal
+# LIQUIDITY EDGE — Native macOS İşlem Günlüğü (v6.0.0)
 
-macOS ve Windows için profesyonel çevrimdışı (offline) işlem günlüğü. İşlemler, performans analitiği, seans takvimi, strateji rehberi (playbook), canlı periyot değerlendirmeleri, görsel grafik notları ve taşınabilir JSON yedekleme.
+macOS 14 ve üzeri için tamamen yerel **Swift, SwiftUI, SwiftData, Swift Charts ve AppKit** ile geliştirilmiş profesyonel, çevrimdışı (offline) işlem günlüğü ve kantitatif analiz çalışma istasyonu.
 
-## Kurulum Dosyaları (İndir)
+## İndir (macOS — Universal Apple Silicon & Intel)
 
-| Platform | Kurulum Paketi | Gereksinimler |
+| Kurulum Paketi | İndirme Bağlantısı | Kurulum Şekli |
 | --- | --- | --- |
-| Windows | [Setup.exe İndir](https://github.com/EdipMangtay/Journal/releases/download/v1.1.0-preview.1/Liquidity-Edge-Windows-Setup.exe) | Windows 10 / 11, 64-bit |
-| macOS (PKG) | [PKG Kurulum Dosyası İndir](https://github.com/EdipMangtay/Journal/releases/download/v1.1.0-preview.1/Liquidity-Edge-macOS-Universal.pkg) | macOS 14+, Apple Silicon veya Intel |
-| macOS (DMG) | [DMG İndir](https://github.com/EdipMangtay/Journal/releases/download/v1.1.0-preview.1/Liquidity-Edge-macOS-Universal.dmg) | Uygulamalar klasörüne sürükleyin |
+| **macOS DMG (Önerilen)** | [Liquidity-Edge-macOS-Universal.dmg İndir](https://github.com/EdipMangtay/Trading_journals/releases/download/v6.0.0/Liquidity-Edge-macOS-Universal.dmg) | Açın ve **Liquidity Edge.app** uygulamasını **Applications (Uygulamalar)** klasörüne sürükleyin |
+| **macOS PKG Yükleyici** | [Liquidity-Edge-macOS-Universal.pkg İndir](https://github.com/EdipMangtay/Trading_journals/releases/download/v6.0.0/Liquidity-Edge-macOS-Universal.pkg) | Çift tıklayın ve standart Apple Kurulum Sihirbazı ile `/Applications` içine kurun |
 
-Kurulum paketleri uygulamanın çalışması için gereken tüm bileşenleri içerir. Ek bir geliştirici aracı veya çalışma ortamı kurmanıza gerek yoktur. Dosyaları kaynak kodu ZIP'inden değil, **Releases** bölümünden indiriniz.
+Tüm sürümler ve SHA-256 doğrulama özetleri için [Releases](https://github.com/EdipMangtay/Trading_journals/releases/latest) sayfasına bakabilirsiniz. **Kurulum için kaynak kodu ZIP'ini değil, yukarıdaki DMG veya PKG dosyasını indirin.**
 
-**Güvenlik bildirimi:** Önizleme paketleri açık kaynak olarak derlenmiş olup kurumsal sertifika imzası içermediğinden ilk açılışta macOS Gatekeeper veya Windows SmartScreen onay ekranı gösterebilir. Detaylar için [SIGNING.md](SIGNING.md) ve [INSTALLATION.md](INSTALLATION.md) kılavuzuna bakınız.
+### İlk Açılış Notu (macOS Gatekeeper)
+Uygulama açık kaynak olarak derlenmiş olup Apple Developer ID sertifikası olmadan imzalandığı için ilk açılışta macOS güvenlik onayı isteyebilir:
+1. Uygulamayı **Uygulamalar (Applications)** klasörüne kopyalayın ve açmayı deneyin.
+2. Uyarı çıkarsa **Sistem Ayarları → Gizlilik ve Güvenlik** ekranının alt kısmından **"Yine de Aç"** butonuna tıklayın (alternatif olarak Terminal'de `xattr -cr "/Applications/Liquidity Edge.app"` komutunu çalıştırabilirsiniz).
+3. Detaylar için [INSTALLATION.md](INSTALLATION.md) ve [SIGNING.md](SIGNING.md) dosyalarına bakabilirsiniz.
 
-Yeni kurulumlar tertemiz, boş bir günlükle açılır; hiçbir demo işlem veya görsel otomatik yüklenmez. Kullanıcı kendi işlemlerini girer ve tüm veriler yerel olarak kullanıcının kendi bilgisayarında depolanır.
+Yeni kurulumlar tertemiz, boş bir günlükle açılır; hiçbir demo veri gerçek günlüğünüze karışmaz. Tüm verileriniz ve ekran görüntüleriniz yalnızca sizin Mac'inizde saklanır.
 
-![macOS dashboard](docs/images/macos-dashboard.png)
+![Liquidity Edge macOS Dashboard](docs/images/macos-dashboard.png)
 
-## Platformlar ve Özellikler
+## Öne Çıkan Özellikler
 
-- `macos/`: Orijinal tasarımı ve performansı koruyan yerel SwiftUI / SwiftData / Swift Charts uygulaması.
-- `windows/`: Özgün Mac tasarımını, renk paletini, oranlarını ve işlevlerini birebir sunan Electron masaüstü uygulaması.
-- **Tam Türkçe:** Arayüz, finansal metrikler, model kuralları, filtreler ve hata bildirimleri eksiksiz Türkçe olarak hazırlanmıştır.
-- **Görsel Not Düzenleyici:** Grafik ekran görüntüleri üzerinde yakınlaştırma (zoom), kaydırma (pan), ok çizimi, dikdörtgen alanı, metin ve likidite seviyesi etiketleme imkanı sunar.
-- **Gizlilik ve Güvenlik:** Tamamen yerel ve çevrimdışıdır. İnternet bağlantısı, hesap kaydı ya da veri toplama/telemetri yoktur.
-- **Taşınabilirlik:** Sürüm 1 uyumlu JSON yedekleme ile verilerinizi Mac ve Windows arasında istediğiniz zaman kayıpsız aktarabilirsiniz.
+- **%100 Native Swift & macOS Deneyimi:** SwiftUI, SwiftData, Swift Charts ve AppKit tabanlı yüksek performanslı masaüstü uygulaması; Apple Silicon (M1/M2/M3/M4) ve Intel Mac desteği.
+- **Performans Masası (Flagship Dashboard):** İnteraktif kayan cam tooltip'li (crosshair HUD), çift katmanlı ışıltılı sermaye eğrisi, süreç/disiplin rayı ve özelleştirilebilir widget düzeni.
+- **Çoklu Hesap & Prop Firm Risk Merkezi:** Personal, Evaluation ve Funded hesaplar; statik ve gün sonu (EOD) trailing drawdown, günlük kayıp limiti, tutarlılık yüzdesi ve kural ihlali takibi.
+- **Strateji Araştırma Laboratuvarı:** QT, MMXM, PO3, SSMT, TSMO ve CRT modelleri için Setup × Seans, Setup × Enstrüman çapraz matrisleri, A/B kohort karşılaştırmaları ve kayıtlı filtre ön ayarları.
+- **Kantitatif Analiz & Monte Carlo:** Deterministik bootstrap / shuffle Monte Carlo simülasyonları, yüzdelik dilim bantları (5./50./95.), su altı (drawdown) toparlanma süresi ve hareketli beklenti eğrileri.
+- **İşlem Planı & Kontrol Listeleri:** Seans öncesi piyasa senaryoları, likidite hedefleri ve model bazlı (QT, MMXM, CRT) ön/son kontrol listesi şablonları.
+- **Gelişmiş İşlem İnceleme & Gerçekleşme Defteri:** Kademeli giriş/çıkış (fills), kayma (slippage) maliyeti, kontrat puan değeri, görsel ekran görüntüsü notları (ok, dikdörtgen, metin, likidite etiketi) ve psikoloji takibi.
+- **CSV Aktarım Sihirbazı & Güvenli Yedekleme:** Sütun eşlemeli CSV içe aktarım, yineleme tespiti, otomatik günlük yerel kurtarma kopyaları ve sürüm uyumlu JSON yedekleme/geri yükleme.
+- **Tam Türkçe & Çevrimdışı Gizlilik:** Hesap kaydı, bulut veya telemetri yoktur. Veritabanı `~/Library/Application Support/LiquidityEdge/Journal.store` konumunda yerel olarak saklanır.
 
-## Geliştirme ve Testler
+## Kaynaktan Derleme ve Test
 
-### macOS
 ```bash
 cd macos
 bash Scripts/test-local.sh
-bash Scripts/package-release.sh 1.1.0
+bash Scripts/build-local.sh
+bash Scripts/package-release.sh 6.0.0
 ```
 
-### Windows
-```powershell
-cd windows
-npm ci
-npm test
-npm run test:e2e
-npm run dist:win
-```
-
-## Doğrulama
-
-GitHub Actions iş akışı her iki platformu otomatik olarak derler, tüm yerel SwiftData ve JavaScript testlerini icra eder, Windows EXE ve macOS PKG/DMG paketlerinin kurulum ve ilk açılış testlerini başarıyla tamamlar.
+Daha fazla teknik detay için [macos/README.md](macos/README.md) ve [macos/Docs/V6-FINAL-REPORT.md](macos/Docs/V6-FINAL-REPORT.md) belgelerine bakabilirsiniz.

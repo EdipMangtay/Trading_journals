@@ -1,35 +1,49 @@
-# Installation / Kurulum
+# Kurulum / Installation (macOS)
 
-Download the installer from [GitHub Releases](https://github.com/EdipMangtay/Journal/releases). Source ZIP downloads are for development, not installation. Current preview builds are unsigned and may be blocked; do not treat them as trusted signed releases. [SIGNING.md](SIGNING.md) documents the remaining publisher requirements.
+Kurulum dosyasını [GitHub Releases](https://github.com/EdipMangtay/Trading_journals/releases/latest) sayfasından indirin. Kaynak kodu ZIP dosyası geliştirme içindir, kurulum için değildir.
 
-## First launch and local data
+## Sistem Gereksinimleri
 
-New installations open a blank journal. No sample trades, setups, reviews or screenshots are loaded automatically. Enter your own records; they persist locally across restarts. No account, server, cloud sync or internet connection is required. The optional Settings demo uses isolated data and does not seed your journal. An upgrade opens your existing records rather than clearing them.
+- **macOS 14 (Sonoma) veya üzeri**
+- **Apple Silicon (M1/M2/M3/M4) veya Intel** (Universal Binary)
+- Xcode, Swift veya Homebrew kurulu olması gerekmez.
 
-## macOS 14 or newer
+## Kurulum Adımları (Türkçe)
 
-Download **Liquidity-Edge-macOS-Universal.pkg**, open it and complete Apple's Installer. The application is installed in `/Applications`. It contains both Apple Silicon and Intel builds; Xcode, Swift and Homebrew are not required. Alternatively, open the `.dmg` and drag the application onto Applications.
+### Yöntem 1: DMG ile Kurulum (Önerilen)
+1. **Liquidity-Edge-macOS-Universal.dmg** dosyasını indirin ve çift tıklayarak açın.
+2. **Liquidity Edge.app** simgesini **Applications (Uygulamalar)** klasörüne sürükleyin.
+3. Uygulamalar klasöründen **Liquidity Edge** uygulamasını başlatın.
 
-This release is ad-hoc signed, without an Apple Developer ID distribution signature or notarization. macOS may block its first launch or the installer. After checking the release and publisher, use **System Settings > Privacy & Security > Open Anyway** for that specific file. See [Apple's instructions](https://support.apple.com/102445). Do not disable Gatekeeper globally. Fully trusted distribution requires Developer ID Application and Installer certificates and Apple notarization.
+### Yöntem 2: PKG Yükleyici ile Kurulum
+1. **Liquidity-Edge-macOS-Universal.pkg** dosyasını indirin ve çift tıklayın.
+2. Apple Kurulum Sihirbazı adımlarını tamamlayın. Uygulama `/Applications/Liquidity Edge.app` konumuna kurulur.
 
-The installer does not remove existing journal data. The original local app stores its journal in `~/Library/Application Support/LiquidityEdge/Journal.store`. Export a JSON backup before switching versions. Close a running copy before upgrading; use only one app copy at a time.
+### İlk Açılışta Gatekeeper Onayı
+Bu sürüm açık kaynaklı ad-hoc imza ile paketlenmiştir (Apple Developer ID sertifikası içermez). macOS ilk açılışta güvenlik uyarısı gösterebilir:
+1. Uyarı penceresini kapatın ve **Sistem Ayarları → Gizlilik ve Güvenlik** bölümüne gidin.
+2. Alt kısımda **Liquidity Edge** için görünen **"Yine de Aç"** butonuna tıklayın (bkz. [Apple kılavuzu](https://support.apple.com/102445)).
+3. Alternatif olarak Terminal uygulamasında şu komutu çalıştırabilirsiniz:
+   ```bash
+   xattr -cr "/Applications/Liquidity Edge.app"
+   ```
+4. Gatekeeper korumasını sistem genelinde kapatmayın.
 
-## Windows 10/11 (64-bit)
+## Yerel Veriler ve Güncelleme
 
-Download **Liquidity-Edge-Windows-Setup.exe** and open it. Installation is per-user, requires no administrator access and includes the entire runtime. Desktop and Start Menu shortcuts are created automatically. No Node.js, Python, Swift or separate dependency installation is needed. The app works offline after installation.
+- Yeni kurulumlar boş bir günlükle açılır; örnek (demo) çalışma alanı yalnızca Ayarlar'dan isteğe bağlı açılır ve gerçek kayıtlarınıza karışmaz.
+- Veritabanınız ve görselleriniz `~/Library/Application Support/LiquidityEdge/Journal.store` konumunda, uygulama paketinden bağımsız saklanır.
+- Uygulamayı güncellemek mevcut işlemlerinizi silmez. Yine de büyük güncellemelerden önce Ayarlar → Veri ve Yedek bölümünden JSON yedeği almanız önerilir.
+- Eski V1 sürümlerinden geçişte SwiftData V1 → V2 geçişi otomatik ve veri kayıpsız çalışır.
 
-This release has no Windows code-signing certificate. Windows SmartScreen may show an unknown-publisher warning; verify the source before choosing **More info > Run anyway**. Managed devices may prohibit unsigned applications. A frictionless, trusted first launch cannot be guaranteed without distribution certificates.
+## English Summary
 
-Windows data is stored in `%APPDATA%/Liquidity Edge/journal.json`. Writes are atomic and the previous successful state is preserved as `journal.json.bak`. Uninstalling leaves journal data intact. Export JSON backups from Settings to move data between platforms. Imported backups merge by stable ID; they do not erase unrelated records.
+Download **Liquidity-Edge-macOS-Universal.dmg** (drag `Liquidity Edge.app` to Applications) or **Liquidity-Edge-macOS-Universal.pkg** from [GitHub Releases](https://github.com/EdipMangtay/Trading_journals/releases/latest). Requires macOS 14+ (Apple Silicon & Intel Universal). Since this open-source build is ad-hoc signed without an Apple Developer ID certificate, allow the first launch via **System Settings → Privacy & Security → Open Anyway** (or `xattr -cr "/Applications/Liquidity Edge.app"`).
 
-## Turkce
+## SHA-256 Doğrulama
 
-- Mac: `.pkg` dosyasini indirip acin ve kurulum adimlarini tamamlayin. Intel ve Apple Silicon desteklenir. Alternatif olarak `.dmg` kullanilabilir.
-- Windows: `Setup.exe` dosyasini indirip acin. Gerekli calistirma ortami kurulumun icindedir.
-- Her iki platform da cevrimdisi calisir. Hesap ve bulut senkronizasyonu yoktur.
-- Dagitim sertifikalari olmadigi icin ilk acilista guvenlik onayi gerekebilir. Guvenlik korumalarini tamamen kapatmayin.
-- Guncelleme oncesi Settings ekranindan JSON yedegi alin. Platformlar arasi veri tasimak icin JSON export/import kullanin.
+İndirdiğiniz paketi doğrulamak için Terminal'de aşağıdaki komutu çalıştırıp `SHA256SUMS-macOS.txt` ile karşılaştırabilirsiniz:
 
-## Checksums
-
-Each release includes SHA-256 checksums. On macOS run `shasum -a 256 <download>`. On Windows run `Get-FileHash <download> -Algorithm SHA256` in PowerShell and compare the result with the release checksum file.
+```bash
+shasum -a 256 Liquidity-Edge-macOS-Universal.dmg Liquidity-Edge-macOS-Universal.pkg
+```
