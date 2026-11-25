@@ -269,11 +269,60 @@ struct DashboardView: View {
     }
     private func mlIntelligencePanel(_ ml: EdgeMLEngine.MLInsightsSnapshot) -> some View {
         let tiltColor: Color = ml.tilt.level == .elevated ? Palette.red : ml.tilt.level == .caution ? Palette.amber : Palette.mint
+        let regimeColor: Color = ml.regime.state == .regimeDrift ? Palette.red : ml.regime.state == .coldVariance ? Palette.amber : ml.regime.state == .hotEdge ? Palette.mint : Palette.blue
         return Panel(
-            title: "YEREL ML İSTİHBARAT & TİLT RADARI",
-            subtitle: "%100 Offline · Empirical Bayes · \(Format.number(ml.computeMs, digits: 1)) ms",
-            accent: tiltColor
+            title: "ULTRA ML İSTİHBARAT · REJİM & TİLT RADARI",
+            subtitle: "%100 Offline · L2 Logistic + Ridge + Bayes · \(Format.number(ml.computeMs, digits: 1)) ms",
+            accent: regimeColor
         ) {
+            // Top 3-metric institutional AI strip: Regime, Walk-Forward AUC, AI Filter Savings
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("AKTİF REJİM & RİSK ÇARPANI").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(Palette.muted)
+                    HStack(spacing: 6) {
+                        Text(ml.regime.state.rawValue).font(.system(size: 12, weight: .bold)).foregroundStyle(regimeColor)
+                        Badge(text: String(format: "%.2fx", ml.regime.riskMultiplier), color: regimeColor)
+                    }
+                    Text("EWMA \(Format.r(ml.regime.ewmaR)) · Uyum %\(Int(ml.regime.recentCompliance))").font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.muted)
+                }
+                .padding(11).frame(maxWidth: .infinity, alignment: .leading)
+                .background(regimeColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(regimeColor.opacity(0.22), lineWidth: 0.9))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("WALK-FORWARD DOĞRULUK (AUC)").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(Palette.muted)
+                    HStack(spacing: 6) {
+                        Text(ml.validation.isReady ? String(format: "%.2f AUC", ml.validation.rocAUC) : "Veri Birikiyor")
+                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                            .foregroundStyle(ml.validation.rocAUC >= 0.65 ? Palette.mint : Palette.blue)
+                        if ml.validation.isReady {
+                            Badge(text: String(format: "%+.0f puan WR Lift", ml.validation.winRateLiftPoints), color: ml.validation.winRateLiftPoints >= 0 ? Palette.mint : Palette.amber)
+                        }
+                    }
+                    Text(ml.validation.isReady ? "n=\(ml.validation.evaluatedCount) kronolojik out-of-sample test" : "En az 8 işlemle out-of-sample doğrulama başlar").font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.muted)
+                }
+                .padding(11).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Palette.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.blue.opacity(0.22), lineWidth: 0.9))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("AI FİLTRE SERMAYE ETKİSİ").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(Palette.muted)
+                    HStack(spacing: 6) {
+                        Text(Format.money(ml.filterSimulation.savedCapital, currency: store.accountCurrency))
+                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                            .foregroundStyle(Palette.outcome(ml.filterSimulation.savedCapital))
+                        if ml.filterSimulation.skippedTrades > 0 {
+                            Badge(text: "\(ml.filterSimulation.skippedTrades) elenen", color: Palette.mint)
+                        }
+                    }
+                    Text("WR \(Format.percent(ml.filterSimulation.actualWinRate)) → \(Format.percent(ml.filterSimulation.filteredWinRate)) · DD -\(Format.percent(ml.filterSimulation.drawdownReductionPercent))")
+                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.muted)
+                }
+                .padding(11).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Palette.mint.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.mint.opacity(0.22), lineWidth: 0.9))
+            }
+
             HStack(spacing: 12) {
                 HStack(spacing: 8) {
                     Image(systemName: ml.tilt.level == .calm ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")

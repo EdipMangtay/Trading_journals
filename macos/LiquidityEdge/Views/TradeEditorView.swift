@@ -17,6 +17,7 @@ struct TradeEditorView: View {
     @State private var showQuickSetup = false
     @State private var quickSetupNotice: String?
     @State private var showDetailedReflection = false
+    @State private var aiNotesNotice: String?
 
     private enum EditorTab: String, CaseIterable, Identifiable {
         case execution = "01 · İşlem & Risk"
@@ -1004,8 +1005,25 @@ struct TradeEditorView: View {
                 ScreenshotAttachmentEditor(shots: $draft.screenshots)
             }
 
-            Panel(title: "İŞLEM TEZİ & ÇIKARILAN DERS", subtitle: "En kritik iki notu hızlıca yaz") {
+            Panel(title: "İŞLEM TEZİ & ÇIKARILAN DERS", subtitle: "En kritik iki notu hızlıca yaz veya seçtiğin kurulumlardan AI ile tek tıkla sentezle") {
                 VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 10) {
+                        Button {
+                            draft.record.notes = EdgeMLEngine.synthesizeTradeNotes(for: draft.record, prediction: livePrediction)
+                            aiNotesNotice = "Seçtiğin kurulum, teyit ve disiplin verilerinden AI tez ve ders notları oluşturuldu."
+                            if animate { EdgeHaptics.selection() }
+                        } label: {
+                            Label("Seçimlerden AI Tez & Ders Taslağı Oluştur", systemImage: "sparkles")
+                        }
+                        .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+
+                        if let aiNotesNotice {
+                            Label(aiNotesNotice, systemImage: "checkmark.circle.fill")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Palette.mint)
+                        }
+                        Spacer()
+                    }
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
                         NoteField(title: "İşlem tezi (Trade Thesis)", text: $draft.record.notes.thesis)
                         NoteField(title: "Çıkarılan kilit ders (Key Lesson)", text: $draft.record.notes.lesson)
@@ -1046,10 +1064,11 @@ struct TradeEditorView: View {
                         .background(scoreColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
-                            Text("YEREL ML EDGE TAHMİNİ").font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(1.1).foregroundStyle(scoreColor)
+                            Text("ULTRA ML EDGE TAHMİNİ").font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(1.1).foregroundStyle(scoreColor)
                             Badge(text: pred.confidence.rawValue, color: scoreColor)
+                            Badge(text: pred.modelUsed, color: Palette.blue)
                         }
-                        Text(pred.confidence == .insufficient ? "En az 3 geçmiş işlemle canlı Bayes tahmini başlar." : "Geçmiş \(pred.historyCount) işlemden Empirical Bayes shrinkage modeli")
+                        Text(pred.confidence == .insufficient ? "En az 3 geçmiş işlemle canlı ML tahmini başlar." : "Geçmiş \(pred.historyCount) işlemden zaman-ağırlıklı L2 Logistic + Ridge + Bayes modeli")
                             .font(.system(size: 10)).foregroundStyle(Palette.muted)
                     }
                 }
@@ -1099,6 +1118,52 @@ struct TradeEditorView: View {
                     Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(Palette.amber)
                     Text(warning).font(.system(size: 10)).foregroundStyle(Palette.amber)
                 }
+            }
+            if let booster = pred.whatIfBooster {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles").font(.system(size: 10)).foregroundStyle(Palette.mint)
+                    Text(booster).font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.mint)
+                }
+            }
+            let similar = EdgeMLEngine.similarTrades(to: draft.record, in: store.scopedTrades, limit: 3)
+            HStack(spacing: 10) {
+                let recPct = pred.recommendedRiskPercent
+                let recDollars = (activeAccount.startingBalance * recPct / 100.0).rounded()
+                Button {
+                    draft.record.riskPercent = recPct
+                    draft.applyRiskPercent(from: activeAccount.startingBalance)
+                    if animate { EdgeHaptics.selection() }
+                } label: {
+                    Label("AI Optimal Riski Uygula: \(Format.percent(recPct)) (\(Format.money(recDollars, currency: activeAccount.currency)))", systemImage: "bolt.shield.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Palette.mint)
+                        .padding(.horizontal, 10).padding(.vertical, 4.5)
+                        .background(Palette.mint.opacity(0.11), in: Capsule())
+                        .overlay(Capsule().strokeBorder(Palette.mint.opacity(0.28), lineWidth: 0.8))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+
+                if !similar.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            Text("k-NN Benzer:").font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.muted)
+                            ForEach(similar) { match in
+                                let c = Palette.outcome(match.trade.netPnL)
+                                HStack(spacing: 5) {
+                                    Text("%\(match.similarityPercent)").fontWeight(.bold).foregroundStyle(Palette.blue)
+                                    Text(match.trade.instrument).fontWeight(.semibold)
+                                    Text(Format.r(match.trade.rMultiple)).foregroundStyle(c)
+                                }
+                                .font(.system(size: 10, design: .monospaced))
+                                .padding(.horizontal, 8).padding(.vertical, 3.5)
+                                .background(Palette.field.opacity(0.9), in: Capsule())
+                                .overlay(Capsule().strokeBorder(Palette.line.opacity(0.8), lineWidth: 0.8))
+                            }
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 12)

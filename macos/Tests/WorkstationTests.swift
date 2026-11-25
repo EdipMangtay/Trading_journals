@@ -331,6 +331,360 @@ final class WorkstationTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(insights.tilt.rapidReentryCount, 4)
         XCTAssertFalse(insights.positiveKeywords.isEmpty)
         XCTAssertFalse(insights.negativeKeywords.isEmpty)
+
+        // 3. Module 1: AI Trade Notes Synthesizer, Optimal Risk %, and What-If Booster
+        XCTAssertGreaterThan(strongPred.recommendedRiskPercent, weakPred.recommendedRiskPercent)
+        let synthNotes = EdgeMLEngine.synthesizeTradeNotes(for: strongDraft, prediction: strongPred)
+        XCTAssertFalse(synthNotes.thesis.isEmpty)
+        XCTAssertFalse(synthNotes.entry.isEmpty)
+        XCTAssertFalse(synthNotes.confirmation.isEmpty)
+        XCTAssertFalse(synthNotes.lesson.isEmpty)
+
+        // 4. Module 2: Post-Trade AI Autopsy (with Execution Grade & Counterfactuals) & k-NN Similar Trades
+        let winnerAutopsy = EdgeMLEngine.autopsy(for: history[0], history: history, calendar: cal)
+        let loserAutopsy = EdgeMLEngine.autopsy(for: history[15], history: history, calendar: cal)
+        XCTAssertEqual(winnerAutopsy.tone, .optimal)
+        XCTAssertEqual(loserAutopsy.tone, .leak)
+        XCTAssertFalse(loserAutopsy.counterfactuals.isEmpty)
+        XCTAssertGreaterThan(winnerAutopsy.edgeAlignmentPercent, loserAutopsy.edgeAlignmentPercent)
+        XCTAssertEqual(winnerAutopsy.similarTrades.count, 5)
+        XCTAssertGreaterThanOrEqual(winnerAutopsy.similarTrades[0].similarityPercent, 85)
+
+        // 5. Module 3: AI Review Draft & AI Daily Plan Kelly Briefing (with Weekday Edge Summary)
+        let aiReview = EdgeMLEngine.generateReviewDraft(existing: ReviewDraft( Review(period: "Monthly", date: history[5].date) ), trades: history, calendar: cal)
+        XCTAssertFalse(aiReview.worked.isEmpty)
+        XCTAssertFalse(aiReview.didNot.isEmpty)
+        XCTAssertFalse(aiReview.adjustment.isEmpty)
+
+        let account = TradingAccount(name: "Test 50K", currency: "USD", startingBalance: 50_000)
+        let risk = WorkstationAnalytics.risk(history, account: account, calendar: cal, now: history.last!.date)
+        let planBrief = EdgeMLEngine.generateDailyPlanBriefing(for: history.last!.date, account: account, trades: history, setups: [Setup(name: "QT + SSMT")], risk: risk, calendar: cal)
+        XCTAssertGreaterThan(planBrief.recommendedRiskPercent, 0)
+        XCTAssertGreaterThan(planBrief.recommendedRiskDollars, 0)
+        XCTAssertFalse(planBrief.weekdayEdgeSummary.isEmpty)
+        XCTAssertFalse(planBrief.plan.scenarios.isEmpty)
+        XCTAssertFalse(planBrief.plan.focus.isEmpty)
+
+        // 6. Module 4: Natural-Language AI Trading Coach across all specialized intents
+        let lossReply = EdgeMLEngine.askCoach(question: "En çok neden ve hangi hatalardan para kaybediyorum?", trades: history, setups: [], account: account, risk: risk, calendar: cal)
+        let qtReply = EdgeMLEngine.askCoach(question: "QT ve SSMT performansım nasıl?", trades: history, setups: [], account: account, risk: risk, calendar: cal)
+        let riskReply = EdgeMLEngine.askCoach(question: "Bugün ne kadar risk almalıyım?", trades: history, setups: [], account: account, risk: risk, calendar: cal)
+        let sessReply = EdgeMLEngine.askCoach(question: "Hangi seans ve saat dilimlerinde işlem açmayı bırakmalıyım?", trades: history, setups: [], account: account, risk: risk, calendar: cal)
+        let instReply = EdgeMLEngine.askCoach(question: "Parite bazlı NQ ve ES performans karşılaştırmam nasıl?", trades: history, setups: [], account: account, risk: risk, calendar: cal)
+        XCTAssertFalse(lossReply.answer.isEmpty)
+        XCTAssertFalse(qtReply.answer.isEmpty)
+        XCTAssertFalse(riskReply.answer.isEmpty)
+        XCTAssertFalse(sessReply.answer.isEmpty)
+        XCTAssertFalse(instReply.answer.isEmpty)
+
+        // 7. Module 5: Playbook AI Model Optimizer (with Stability Score, Best Instrument, and Optimal Risk %)
+        let opt = EdgeMLEngine.optimizeSetup(Setup(name: "QT + SSMT"), trades: history, calendar: cal)
+        XCTAssertEqual(opt.sampleCount, 12)
+        XCTAssertGreaterThanOrEqual(opt.edgeStabilityScore, 70)
+        XCTAssertTrue(opt.bestInstrument.contains("NQ"))
+        XCTAssertTrue(opt.bestSession.contains("New York"))
+        XCTAssertGreaterThan(opt.recommendedRiskPercent, 0.25)
+    }
+
+    // MARK: - Exhaustive Ultra-AI Calibration, Stress, Regime, Counterfactual & Scale Tests
+
+    private func makeSyntheticUltraJournal(count: Int, calendar: Calendar) -> [TradeRecord] {
+        let base = Date(timeIntervalSince1970: 1_710_000_000)
+        var list: [TradeRecord] = []
+        list.reserveCapacity(count)
+
+        for i in 0..<count {
+            var t = TradeRecord()
+            t.date = base.addingTimeInterval(Double(i) * 14400)
+            t.exitDate = t.date.addingTimeInterval(1800)
+            t.riskDollars = 250
+
+            let bucket = i % 5
+            if bucket == 0 || bucket == 1 || bucket == 2 {
+                // High-Edge Institutional A+ Cohort (80% win rate, +2.2R on win, -1.0R on loss)
+                t.instrument = bucket == 2 ? "ES" : "NQ"
+                t.direction = "Long"
+                t.session = "New York AM"
+                t.setupName = "QT + SSMT"
+                t.bias = "Bullish"
+                t.biasRelation = "Pro-Trend"
+                t.htfAligned = true
+                t.grade = "A+"
+                t.qt.enabled = true; t.qt.profile = "AMDX"; t.qt.dailyQuarter = "Q3"; t.qt.aligned = true; t.qt.valid = true
+                t.ssmt.confirmation = "Yes"; t.ssmt.valid = true
+                t.confirmations = ["CISD", "FVG", "Displacement"]
+                t.followsPlan = true
+                t.emotional.fomo = 2; t.emotional.stress = 3
+                let isWin = (i % 10 != 6) // ~83% WR
+                t.rMultiple = isWin ? 2.2 : -1.0
+                t.grossPnL = isWin ? 550 : -250
+                t.notes.thesis = "Sabırla NY AM Q3 SSMT CISD teyidi beklendi temiz giriş"
+            } else {
+                // Low-Edge Leak Cohort (15% win rate, Counter-Trend without SSMT, broken rules, high FOMO)
+                t.instrument = "EURUSD"
+                t.direction = "Short"
+                t.session = "London"
+                t.setupName = "Impulsive Scalp"
+                t.bias = "Bullish"
+                t.biasRelation = "Counter-Trend"
+                t.htfAligned = false
+                t.grade = "D"
+                t.qt.enabled = false
+                t.ssmt.confirmation = "No"; t.ssmt.valid = false
+                t.followsPlan = false
+                t.brokenRules = ["Early entry", "FOMO chase"]
+                t.emotional.fomo = 8; t.emotional.stress = 8
+                let isWin = (i % 15 == 4)
+                t.rMultiple = isWin ? 0.8 : -1.4
+                t.grossPnL = isWin ? 200 : -350
+                t.notes.lesson = "Sabırsız erken fomo girişi kural ihlali zararı"
+                // Create rapid re-entry on every second leak trade
+                if i > 0 && bucket == 4 {
+                    t.date = list[i - 1].exitDate!.addingTimeInterval(300)
+                    t.exitDate = t.date.addingTimeInterval(600)
+                }
+            }
+            list.append(t)
+        }
+        return list
+    }
+
+    func testUltraMLOutOfSampleWalkForwardROCAUCAndBrierSkill() throws {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let journal = makeSyntheticUltraJournal(count: 120, calendar: cal)
+
+        let snap = EdgeMLEngine.analyze(journal, calendar: cal)
+        XCTAssertEqual(snap.sampleCount, 120)
+
+        // 1. Out-of-Sample Walk-Forward ROC-AUC & Brier Skill MUST prove genuine discrimination
+        XCTAssertTrue(snap.validation.isReady)
+        XCTAssertGreaterThanOrEqual(snap.validation.evaluatedCount, 100)
+        XCTAssertGreaterThanOrEqual(snap.validation.rocAUC, 0.80, "Walk-forward ROC-AUC must strongly separate winners from losers")
+        XCTAssertLessThan(snap.validation.brierScore, snap.validation.baselineBrierScore, "Trained L2 Logistic+Bayes ensemble must beat naive base-rate Brier score")
+        XCTAssertGreaterThan(snap.validation.brierSkillPercent, 15.0)
+        XCTAssertGreaterThan(snap.validation.highEdgeWinRate, snap.validation.lowEdgeWinRate + 35.0)
+        XCTAssertGreaterThan(snap.validation.highEdgeAvgR, snap.validation.lowEdgeAvgR + 1.5)
+
+        // 2. Counterfactual AI Filter Simulator MUST demonstrate substantial capital saved & DD reduction
+        let fs = snap.filterSimulation
+        XCTAssertGreaterThan(fs.skippedTrades, 30)
+        XCTAssertGreaterThan(fs.savedCapital, 5_000)
+        XCTAssertGreaterThan(fs.filteredNetPnL, fs.actualNetPnL)
+        XCTAssertGreaterThan(fs.filteredWinRate, fs.actualWinRate + 15.0)
+        XCTAssertLessThan(fs.filteredMaxDrawdown, fs.actualMaxDrawdown)
+        XCTAssertGreaterThan(fs.drawdownReductionPercent, 25.0)
+    }
+
+    func testUltraMLTimeDecayAdaptationAndAllFourCUSUMRegimes() throws {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let base = Date(timeIntervalSince1970: 1_715_000_000)
+
+        func makeSeries(rList: [Double], compliant: [Bool]) -> [TradeRecord] {
+            rList.enumerated().map { idx, r in
+                var t = TradeRecord()
+                t.instrument = "NQ"; t.direction = "Long"; t.session = "New York AM"; t.setupName = "QT + SSMT"
+                t.date = base.addingTimeInterval(Double(idx) * 86400)
+                t.exitDate = t.date.addingTimeInterval(3600)
+                t.rMultiple = r
+                t.grossPnL = r * 250
+                t.riskDollars = 250
+                t.followsPlan = compliant[idx]
+                if !compliant[idx] { t.brokenRules = ["Chased entry"] }
+                return t
+            }
+        }
+
+        // Regime 1: Hot Edge (consistent recent winners + 100% discipline)
+        let hotR = [0.2, -0.5, 0.4, -0.3, 0.5, 1.5, 2.0, 2.2, 1.8, 2.5, 2.1, 1.9]
+        let hotRegime = EdgeMLEngine.detectRegime(makeSeries(rList: hotR, compliant: Array(repeating: true, count: hotR.count)))
+        XCTAssertEqual(hotRegime.state, .hotEdge)
+        XCTAssertEqual(hotRegime.riskMultiplier, 1.10, accuracy: 0.001)
+
+        // Regime 2: Stable (balanced variance around baseline + compliant)
+        let stableR = [1.5, -1.0, 1.4, -1.0, 1.5, -1.0, 1.2, -0.8, 1.1, -0.8, 1.0, -0.7]
+        let stableRegime = EdgeMLEngine.detectRegime(makeSeries(rList: stableR, compliant: Array(repeating: true, count: stableR.count)))
+        XCTAssertEqual(stableRegime.state, .stable)
+        XCTAssertEqual(stableRegime.riskMultiplier, 1.00, accuracy: 0.001)
+
+        // Regime 3: Cold Variance (100% compliant process, temporary cold streak)
+        let coldR = [2.0, 1.8, 2.2, 1.5, 2.0, 1.6, -1.0, -1.0, -0.8, -1.0, -0.9, -1.0]
+        let coldRegime = EdgeMLEngine.detectRegime(makeSeries(rList: coldR, compliant: Array(repeating: true, count: coldR.count)))
+        XCTAssertEqual(coldRegime.state, .coldVariance)
+        XCTAssertEqual(coldRegime.riskMultiplier, 0.75, accuracy: 0.001)
+
+        // Regime 4: Regime Drift (losses + broken compliance + CUSUM drift)
+        let driftR = [2.0, 1.8, 2.2, 1.5, 2.0, 1.6, -1.5, -1.4, -1.2, -1.5, -1.3, -1.6]
+        let driftComp = [true, true, true, true, true, true, false, false, false, false, false, false]
+        let driftTrades = makeSeries(rList: driftR, compliant: driftComp)
+        let driftRegime = EdgeMLEngine.detectRegime(driftTrades)
+        XCTAssertEqual(driftRegime.state, .regimeDrift)
+        XCTAssertEqual(driftRegime.riskMultiplier, 0.50, accuracy: 0.001)
+
+        // Time-Decay Adaptation: recent losses on NQ Long must pull expected R well below older wins
+        var oldWinsThenLosses: [TradeRecord] = []
+        for i in 0..<30 {
+            var t = TradeRecord()
+            t.instrument = "NQ"; t.direction = "Long"; t.session = "New York AM"; t.setupName = "OldEdge"
+            t.date = base.addingTimeInterval(Double(i) * 86400)
+            t.exitDate = t.date.addingTimeInterval(1800)
+            let isOld = i < 15
+            t.rMultiple = isOld ? 1.5 : -1.5
+            t.grossPnL = isOld ? 300 : -300
+            oldWinsThenLosses.append(t)
+        }
+        var probe = TradeRecord()
+        probe.instrument = "NQ"; probe.direction = "Long"; probe.session = "New York AM"; probe.setupName = "OldEdge"
+        let decayedPred = EdgeMLEngine.predict(candidate: probe, history: oldWinsThenLosses, calendar: cal)
+        XCTAssertLessThan(decayedPred.expectedR, -0.10, "Time-decay weighting must prioritize recent regime deterioration over stale wins")
+    }
+
+    func testUltraMLNumericalStabilityMonotonicityAndExtremeEdgeCases() throws {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let account = TradingAccount(name: "EdgeTest", currency: "USD", startingBalance: 50_000)
+
+        // Edge Cases: 0, 1, 2, 3 trades, 100% wins, 100% losses, all breakevens, missing R, extreme PnL
+        let emptySnap = EdgeMLEngine.analyze([], calendar: cal)
+        XCTAssertEqual(emptySnap.sampleCount, 0)
+        XCTAssertFalse(emptySnap.validation.isReady)
+
+        for count in [0, 1, 2, 3, 10] {
+            var extreme: [TradeRecord] = []
+            for i in 0..<count {
+                var t = TradeRecord()
+                t.instrument = ""; t.session = ""; t.grade = ""; t.biasRelation = ""
+                t.grossPnL = i % 2 == 0 ? 10_000_000 : -10_000_000
+                t.rMultiple = nil // missing R
+                t.date = Date(timeIntervalSince1970: Double(i) * 3600)
+                extreme.append(t)
+            }
+            let snap = EdgeMLEngine.analyze(extreme, calendar: cal)
+            XCTAssertFalse(snap.validation.rocAUC.isNaN)
+            XCTAssertFalse(snap.validation.brierScore.isNaN)
+            XCTAssertFalse(snap.regime.ewmaR.isNaN)
+            XCTAssertFalse(snap.filterSimulation.savedCapital.isNaN)
+
+            let pred = EdgeMLEngine.predict(candidate: TradeRecord(), history: extreme, calendar: cal)
+            XCTAssertTrue((5...99).contains(pred.edgeScore))
+            XCTAssertTrue(pred.winProbability.isFinite && pred.winProbability >= 0 && pred.winProbability <= 100)
+            XCTAssertTrue(pred.expectedR.isFinite)
+            XCTAssertTrue(pred.uncertaintyBandR.isFinite && pred.uncertaintyBandR > 0)
+            XCTAssertTrue(pred.recommendedRiskPercent.isFinite && pred.recommendedRiskPercent >= 0.20 && pred.recommendedRiskPercent <= 1.50)
+
+            let risk = WorkstationAnalytics.risk(extreme, account: account, calendar: cal)
+            let coach = EdgeMLEngine.askCoach(question: "Genel durumum ne?", trades: extreme, setups: [], account: account, risk: risk, calendar: cal)
+            XCTAssertFalse(coach.headline.isEmpty)
+        }
+
+        // Strict Monotonicity: Adding rule breaks & FOMO=9 MUST reduce edgeScore and recommendedRiskPercent
+        let journal = makeSyntheticUltraJournal(count: 60, calendar: cal)
+        var cleanCandidate = journal[0]
+        cleanCandidate.id = UUID()
+        var dirtyCandidate = cleanCandidate
+        dirtyCandidate.id = UUID()
+        dirtyCandidate.followsPlan = false
+        dirtyCandidate.brokenRules = ["Early entry", "FOMO chase"]
+        dirtyCandidate.emotional.fomo = 9
+        dirtyCandidate.emotional.stress = 9
+
+        let cleanPred = EdgeMLEngine.predict(candidate: cleanCandidate, history: journal, calendar: cal)
+        let dirtyPred = EdgeMLEngine.predict(candidate: dirtyCandidate, history: journal, calendar: cal)
+        XCTAssertGreaterThan(cleanPred.edgeScore, dirtyPred.edgeScore + 20)
+        XCTAssertGreaterThan(cleanPred.recommendedRiskPercent, dirtyPred.recommendedRiskPercent)
+    }
+
+    func testUltraMLCosineKNNInvariantsAndAutopsyCounterfactuals() throws {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let journal = makeSyntheticUltraJournal(count: 40, calendar: cal)
+
+        let target = journal[0]
+        var exactClone = target
+        exactClone.id = UUID()
+        var opposite = TradeRecord()
+        opposite.instrument = "XAUUSD"; opposite.direction = "Short"; opposite.session = "Asia"
+        opposite.setupName = "Unrelated"; opposite.biasRelation = "Counter-Trend"
+        opposite.qt.enabled = false; opposite.ssmt.valid = false; opposite.followsPlan = false; opposite.brokenRules = ["FOMO"]
+        opposite.emotional.fomo = 9; opposite.emotional.stress = 9
+
+        let matches = EdgeMLEngine.similarTrades(to: target, in: [target, exactClone, opposite] + journal, limit: 5)
+        XCTAssertEqual(matches.count, 5)
+        XCTAssertFalse(matches.contains { $0.id == target.id }, "k-NN must never return the target trade itself")
+        XCTAssertGreaterThanOrEqual(matches[0].similarityPercent, 95, "Exact clone must score >= 95% Cosine similarity")
+        for i in 1..<matches.count {
+            XCTAssertGreaterThanOrEqual(matches[i - 1].similarityPercent, matches[i].similarityPercent, "k-NN matches must be strictly sorted descending")
+        }
+
+        // Autopsy counterfactuals on a broken-rule high-FOMO losing trade
+        let leakTrade = try XCTUnwrap(journal.first { !$0.compliant && $0.netPnL < 0 })
+        let autopsy = EdgeMLEngine.autopsy(for: leakTrade, history: journal, calendar: cal)
+        XCTAssertEqual(autopsy.tone, .leak)
+        XCTAssertFalse(autopsy.counterfactuals.isEmpty)
+        XCTAssertTrue(["S+", "A", "B", "C", "D"].contains(autopsy.executionGrade))
+        XCTAssertTrue((10...99).contains(autopsy.edgeAlignmentPercent))
+    }
+
+    func testUltraMLEntityAwareCoachAcrossAllTenIntents() throws {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let journal = makeSyntheticUltraJournal(count: 50, calendar: cal)
+        let setup = Setup(name: "QT + SSMT")
+        let account = TradingAccount(name: "Funded 100K", currency: "USD", startingBalance: 100_000)
+        let risk = WorkstationAnalytics.risk(journal, account: account, calendar: cal, now: journal.last!.date)
+
+        let queries: [(query: String, expectedHeadlineFragment: String)] = [
+            ("AI filtresi kullansaydım ne kadar para kurtarırdım?", "Filtre"),
+            ("AI modelinin doğruluk oranı AUC ve rejim durumu ne?", "Walk-Forward"),
+            ("QT + SSMT stratejim nasıl gidiyor?", "QT + SSMT"),
+            ("NQ performansım nasıl?", "NQ"),
+            ("Hangi seans ve saat dilimlerinde işlem açmayı bırakmalıyım?", "Seans"),
+            ("Parite bazlı performans karşılaştırmam nasıl?", "Parite"),
+            ("En çok neden ve hangi hatalardan para kaybediyorum?", "Kayıp"),
+            ("QT Çeyrek ve SSMT onaylı işlemlerimin performansı nasıl?", "QT"),
+            ("Bugün ne kadar risk almalıyım?", "Risk"),
+            ("Bana genel bir performans özeti çıkar", "Edge")
+        ]
+
+        for (q, expected) in queries {
+            let reply = EdgeMLEngine.askCoach(question: q, trades: journal, setups: [setup], account: account, risk: risk, calendar: cal)
+            XCTAssertTrue(reply.headline.localizedCaseInsensitiveContains(expected), "Query '\(q)' produced unexpected headline '\(reply.headline)'")
+            XCTAssertFalse(reply.answer.isEmpty)
+            XCTAssertFalse(reply.metrics.isEmpty)
+            XCTAssertFalse(reply.actionItems.isEmpty)
+        }
+    }
+
+    func testUltraMLThousandTradeM3ProScaleAndDeterminismBenchmark() throws {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let bigJournal = makeSyntheticUltraJournal(count: 1_000, calendar: cal)
+
+        let snapA = EdgeMLEngine.analyze(bigJournal, calendar: cal)
+        let tCachedStart = CFAbsoluteTimeGetCurrent()
+        let snapB = EdgeMLEngine.analyze(bigJournal, calendar: cal)
+        let cachedMs = (CFAbsoluteTimeGetCurrent() - tCachedStart) * 1000.0
+
+        XCTAssertEqual(snapA.sampleCount, 1_000)
+        XCTAssertEqual(snapA.validation, snapB.validation, "Walk-Forward validation must be 100% deterministic")
+        XCTAssertEqual(snapA.regime, snapB.regime, "CUSUM regime detection must be 100% deterministic")
+        XCTAssertEqual(snapA.filterSimulation, snapB.filterSimulation, "AI Filter simulation must be 100% deterministic")
+        XCTAssertEqual(snapA.goldenSetups, snapB.goldenSetups)
+        XCTAssertGreaterThanOrEqual(snapA.validation.rocAUC, 0.80)
+        XCTAssertLessThan(snapA.computeMs, 600.0, "Full 1,000-trade Ultra ML pipeline must finish under 600ms on M3 Pro (took \(snapA.computeMs)ms)")
+        XCTAssertLessThan(cachedMs, 5.0, "FNV-1a cached 1,000-trade analyze lookup must be sub-5ms (took \(cachedMs)ms)")
+
+        // Verify live TradeEditorView keystroke prediction latency against 1,000-trade history
+        var candidate = bigJournal[0]
+        candidate.id = UUID()
+        _ = EdgeMLEngine.predict(candidate: candidate, history: bigJournal, calendar: cal) // warm modelCache
+        let tPredStart = CFAbsoluteTimeGetCurrent()
+        for _ in 0..<50 {
+            _ = EdgeMLEngine.predict(candidate: candidate, history: bigJournal, calendar: cal)
+        }
+        let avgKeystrokePredMs = ((CFAbsoluteTimeGetCurrent() - tPredStart) * 1000.0) / 50.0
+        XCTAssertLessThan(avgKeystrokePredMs, 2.0, "Per-keystroke live ML prediction on 1,000 trades must be < 2ms (took \(avgKeystrokePredMs)ms)")
     }
 
     // MARK: - Automated Full-App Page, Tab, Modal & Button Verification
@@ -709,5 +1063,13 @@ final class WorkstationTests: XCTestCase {
         XCTAssertEqual(store.customRules.count, rulesBefore + 1)
         try store.commit { store.context.delete(customRule) }
         XCTAssertEqual(store.customRules.count, rulesBefore)
+
+        // 11. Verify ReviewEditor "AI ile Otomatik Doldur" button action handler on live store
+        let filledReview = ReviewEditor.performGenerateAIDraft(ReviewDraft(), in: store)
+        XCTAssertFalse(filledReview.worked.isEmpty)
+        XCTAssertFalse(filledReview.didNot.isEmpty)
+        XCTAssertFalse(filledReview.repeatNext.isEmpty)
+        XCTAssertFalse(filledReview.stop.isEmpty)
+        XCTAssertFalse(filledReview.adjustment.isEmpty)
     }
 }

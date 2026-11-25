@@ -124,6 +124,7 @@ struct TradeDetailView: View {
                             }
                             Text(L10n.text("Green: confirmed · Amber: absent or unconfirmed · Red: broken execution. These are your recorded observations.")).font(.system(size: 10)).foregroundStyle(Palette.muted)
                         }
+                        aiAutopsyPanel(for: t)
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 14) { MetricCard(title: "Overall process", value: "\(Format.number(t.scores.overall, digits: 0))/100"); MetricCard(title: "Risk", value: t.riskDollars.map { Format.money($0, currency: store.currency(for: t.id)) } ?? "—"); MetricCard(title: "Planned RR", value: t.plannedRR.map { Format.number($0) } ?? "—"); MetricCard(title: "Duration", value: t.duration.map { "\(Int($0 / 60)) min" } ?? "—") }
                         Panel(title: "THESIS & LESSON") {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 310), spacing: 16)], alignment: .leading, spacing: 16) {
@@ -266,6 +267,118 @@ struct TradeDetailView: View {
         return CGSize(width: min(1040, max(720, visible.width - 96)), height: min(860, max(480, visible.height - 80)))
     }
     private func numeric(_ value: Double?) -> String { value.map { Format.number($0) } ?? "—" }
+
+    private func aiAutopsyPanel(for t: TradeRecord) -> some View {
+        let rep = EdgeMLEngine.autopsy(for: t, history: store.scopedTrades, calendar: store.preferences.calendar)
+        let accent: Color = rep.tone == .optimal ? Palette.mint : rep.tone == .warning ? Palette.amber : rep.tone == .leak ? Palette.red : Palette.blue
+        return Panel(title: "AI İŞLEM OTOPSİSİ & K-NN BENZER İŞLEMLER", subtitle: "İşlem öncesi Edge \(rep.preTradeEdgeScore)/100 · Uygulama Notu \(rep.executionGrade) · Edge Uyumu %\(rep.edgeAlignmentPercent)", accent: accent) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    Image(systemName: "brain.head.profile").font(.system(size: 16, weight: .semibold)).foregroundStyle(accent)
+                    Text(rep.verdictTitle).font(.system(size: 14, weight: .bold)).foregroundStyle(Palette.ink)
+                    Badge(text: rep.tone.rawValue, color: accent)
+                    Badge(text: "NOT: \(rep.executionGrade)", color: Palette.mint)
+                    Badge(text: "UYUM %\(rep.edgeAlignmentPercent)", color: Palette.blue)
+                    Spacer()
+                }
+                Text(rep.diagnosis)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.ink.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !rep.strengths.isEmpty || !rep.weaknesses.isEmpty {
+                    HStack(alignment: .top, spacing: 16) {
+                        if !rep.strengths.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("DOĞRU UYGULANANLAR").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundStyle(Palette.mint)
+                                ForEach(rep.strengths, id: \.self) { item in
+                                    HStack(alignment: .top, spacing: 6) {
+                                        Image(systemName: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(Palette.mint).padding(.top, 1)
+                                        Text(item).font(.system(size: 11)).foregroundStyle(Palette.ink.opacity(0.9))
+                                    }
+                                }
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        if !rep.weaknesses.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("RİSK & SÜREÇ SIZINTILARI").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundStyle(Palette.amber)
+                                ForEach(rep.weaknesses, id: \.self) { item in
+                                    HStack(alignment: .top, spacing: 6) {
+                                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(Palette.amber).padding(.top, 1)
+                                        Text(item).font(.system(size: 11)).foregroundStyle(Palette.ink.opacity(0.9))
+                                    }
+                                }
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(12)
+                    .background(Palette.field.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+                }
+
+                if !rep.counterfactuals.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("KARŞI-OLGUSAL (WHAT-IF) İSTATİSTİKSEL ANALİZ").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundStyle(Palette.blue)
+                        ForEach(rep.counterfactuals, id: \.self) { cf in
+                            HStack(alignment: .top, spacing: 7) {
+                                Image(systemName: "arrow.triangle.branch").font(.system(size: 10, weight: .semibold)).foregroundStyle(Palette.blue).padding(.top, 2)
+                                Text(cf).font(.system(size: 11)).foregroundStyle(Palette.ink.opacity(0.9))
+                            }
+                        }
+                    }
+                    .padding(11)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Palette.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+                    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Palette.blue.opacity(0.20)))
+                }
+
+                HStack(spacing: 10) {
+                    Image(systemName: "sparkles").foregroundStyle(accent)
+                    Text("AI Reçetesi: \(rep.prescription)")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Palette.ink)
+                }
+                .padding(11)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(accent.opacity(0.24)))
+
+                if !rep.similarTrades.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("EN BENZER GEÇMİŞ İŞLEMLER (k-NN VEKTÖR EŞLEŞMESİ)").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundStyle(Palette.blue)
+                            Spacer()
+                            Text("Benzer Grup WR: \(Format.percent(rep.similarCohortWinRate)) · Ort. \(Format.r(rep.similarCohortAvgR))")
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(Palette.outcome(rep.similarCohortAvgR))
+                        }
+                        ForEach(rep.similarTrades) { match in
+                            HStack(spacing: 10) {
+                                Text("%\(match.similarityPercent) Benzer")
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(Palette.blue)
+                                    .padding(.horizontal, 7).padding(.vertical, 3)
+                                    .background(Palette.blue.opacity(0.11), in: Capsule())
+                                Text(match.trade.instrument).font(.system(size: 12, weight: .semibold))
+                                Text(match.matchedFeatures.joined(separator: " · "))
+                                    .font(.system(size: 10)).foregroundStyle(Palette.muted).lineLimit(1)
+                                Spacer()
+                                Text(Format.date(match.trade.date, calendar: store.preferences.calendar))
+                                    .font(.system(size: 10)).foregroundStyle(Palette.muted)
+                                Text(Format.r(match.trade.rMultiple))
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(Palette.outcome(match.trade.rMultiple ?? match.trade.netPnL))
+                                Text(Format.money(match.trade.netPnL, currency: store.currency(for: match.trade.id)))
+                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(Palette.outcome(match.trade.netPnL))
+                            }
+                            .padding(.horizontal, 10).padding(.vertical, 7)
+                            .background(Palette.raised.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     @MainActor @discardableResult
     static func performDeleteTrade(tradeID: UUID, in store: JournalStore) -> Bool {

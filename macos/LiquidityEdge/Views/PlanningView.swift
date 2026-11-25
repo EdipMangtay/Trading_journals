@@ -74,19 +74,69 @@ struct PlanningView: View {
             )
             Spacer()
             if activeTab == "Daily Plan" {
-                Button {
-                    savePlan()
-                } label: {
-                    Label("Planı Kaydet", systemImage: "checkmark")
+                HStack(spacing: 10) {
+                    Button {
+                        applyAIDailyBriefing()
+                    } label: {
+                        Label("AI Seans Brifingi ile Doldur", systemImage: "sparkles")
+                    }
+                    .buttonStyle(EdgeButtonStyle(prominent: false))
+
+                    Button {
+                        savePlan()
+                    } label: {
+                        Label("Planı Kaydet", systemImage: "checkmark")
+                    }
+                    .buttonStyle(EdgeButtonStyle())
                 }
-                .buttonStyle(EdgeButtonStyle())
             }
         }
     }
 
     // MARK: - Daily Plan Section
     private var dailyPlanSection: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        let aiBrief = EdgeMLEngine.generateDailyPlanBriefing(
+            for: selectedDate,
+            account: store.selectedAccount,
+            trades: store.scopedTrades,
+            setups: store.setups,
+            risk: store.scopedRisk,
+            calendar: store.preferences.calendar
+        )
+        let tiltColor: Color = aiBrief.tiltLevel == .elevated ? Palette.red : aiBrief.tiltLevel == .caution ? Palette.amber : Palette.mint
+        return VStack(alignment: .leading, spacing: 20) {
+            GlassRibbon(accent: Palette.mint) {
+                HStack(spacing: 0) {
+                    TerminalMetric(
+                        title: "AI ÖNERİLEN RİSK (KELLY)",
+                        value: "\(Format.percent(aiBrief.recommendedRiskPercent)) (\(Format.money(aiBrief.recommendedRiskDollars, currency: store.accountCurrency)))",
+                        color: Palette.mint,
+                        subtitle: "Quarter-Kelly \(Format.percent(aiBrief.quarterKellyPercent)) × \(String(format: "%.2fx", aiBrief.regimeRiskMultiplier)) Rejim"
+                    )
+                    Rectangle().fill(Palette.line.opacity(0.7)).frame(width: 1, height: 38).padding(.horizontal, 16)
+                    TerminalMetric(
+                        title: "EN VERİMLİ SEANS",
+                        value: aiBrief.bestSessionLabel,
+                        color: Palette.blue,
+                        subtitle: aiBrief.weekdayEdgeSummary
+                    )
+                    Rectangle().fill(Palette.line.opacity(0.7)).frame(width: 1, height: 38).padding(.horizontal, 16)
+                    TerminalMetric(
+                        title: "AKTİF REJİM (CUSUM)",
+                        value: aiBrief.regimeState.rawValue,
+                        color: aiBrief.regimeState == .regimeDrift ? Palette.red : aiBrief.regimeState == .hotEdge ? Palette.mint : Palette.blue,
+                        subtitle: "Odak: \(aiBrief.primarySetupLabel)"
+                    )
+                    Rectangle().fill(Palette.line.opacity(0.7)).frame(width: 1, height: 38).padding(.horizontal, 16)
+                    TerminalMetric(
+                        title: "TİLT & DİSİPLİN DURUMU",
+                        value: aiBrief.tiltLevel.rawValue,
+                        color: tiltColor,
+                        subtitle: "Tilt Skoru: \(aiBrief.tiltScore)/100"
+                    )
+                }
+            }
+
             HStack(spacing: 16) {
                 DatePicker(
                     "Plan Tarihi",
@@ -364,6 +414,19 @@ struct PlanningView: View {
         } catch {
             store.report(error)
         }
+    }
+
+    private func applyAIDailyBriefing() {
+        let briefing = EdgeMLEngine.generateDailyPlanBriefing(
+            for: selectedDate,
+            account: store.selectedAccount,
+            trades: store.scopedTrades,
+            setups: store.setups,
+            risk: store.scopedRisk,
+            calendar: store.preferences.calendar
+        )
+        currentPlan = briefing.plan
+        saveMessage = "AI Seans Brifingi uygulandı (\(Format.percent(briefing.recommendedRiskPercent)) risk)."
     }
 
     private func addDefaultTemplates() {

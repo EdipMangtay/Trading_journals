@@ -93,6 +93,12 @@ struct ReviewEditor: View {
                     Text("Sonuçları değerlendir, bir sonraki adımı belirle.").font(.system(size: 11)).foregroundStyle(Palette.muted)
                 }
                 Spacer(minLength: 8)
+                Button {
+                    draft = Self.performGenerateAIDraft(draft, in: store)
+                } label: {
+                    Label("AI ile Otomatik Doldur", systemImage: "sparkles")
+                }
+                .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
                 Button(L10n.text("Cancel")) { dismiss() }.buttonStyle(EdgeButtonStyle(prominent: false, compact: true)).keyboardShortcut(.cancelAction)
                 Button { save() } label: { Label(L10n.text("Save review"), systemImage: "checkmark") }
                     .buttonStyle(EdgeButtonStyle(compact: true)).keyboardShortcut("s", modifiers: .command)
@@ -160,6 +166,11 @@ struct ReviewEditor: View {
         } else {
             dismiss()
         }
+    }
+
+    @MainActor
+    static func performGenerateAIDraft(_ draft: ReviewDraft, in store: JournalStore) -> ReviewDraft {
+        EdgeMLEngine.generateReviewDraft(existing: draft, trades: store.scopedTrades, calendar: store.preferences.calendar)
     }
 
     @MainActor

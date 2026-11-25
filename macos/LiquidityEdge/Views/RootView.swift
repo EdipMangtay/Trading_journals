@@ -357,6 +357,33 @@ struct RootView: View {
             Rectangle().fill(Palette.line.opacity(0.7)).frame(height: 1)
             ScrollView {
                 VStack(alignment: .leading, spacing: 5) {
+                    if globalQuery.trimmingCharacters(in: .whitespacesAndNewlines).count >= 3 {
+                        let aiReply = EdgeMLEngine.askCoach(
+                            question: globalQuery,
+                            trades: store.scopedTrades,
+                            setups: store.setups,
+                            account: store.selectedAccount,
+                            risk: store.scopedRisk,
+                            calendar: store.preferences.calendar
+                        )
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Label("AI KOÇ YANITI · \(aiReply.headline)", systemImage: "sparkles")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(Palette.mint)
+                                Spacer()
+                            }
+                            Text(aiReply.answer)
+                                .font(.system(size: 11))
+                                .foregroundStyle(Palette.ink.opacity(0.9))
+                                .lineLimit(4)
+                        }
+                        .padding(12)
+                        .background(Palette.mint.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.mint.opacity(0.26), lineWidth: 1))
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 8)
+                    }
                     if !matchingPages.isEmpty {
                         Text("SAYFALAR VE KOMUTLAR").font(EdgeType.eyebrow).tracking(1.3).foregroundStyle(Palette.muted).padding(.horizontal, 12).padding(.bottom, 8)
                         ForEach(matchingPages) { item in

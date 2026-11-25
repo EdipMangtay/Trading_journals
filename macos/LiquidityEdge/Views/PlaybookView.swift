@@ -117,6 +117,39 @@ struct PlaybookView: View {
                         .padding(17)
                         .background(Palette.field.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
                         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.line.opacity(0.65), lineWidth: 1))
+                        let aiOpt = EdgeMLEngine.optimizeSetup(setup, trades: store.scopedTrades, calendar: store.preferences.calendar)
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 12) {
+                                Label("AI MODEL OPTİMİZASYONU", systemImage: "brain.head.profile")
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(Palette.mint)
+                                Badge(text: "İSTİKRAR \(aiOpt.edgeStabilityScore)/100", color: aiOpt.edgeStabilityScore >= 65 ? Palette.mint : Palette.blue)
+                                Badge(text: "ÖNERİLEN RİSK \(Format.percent(aiOpt.recommendedRiskPercent))", color: Palette.mint)
+                                Spacer()
+                                Text("Lider Parite: \(aiOpt.bestInstrument)")
+                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(Palette.ink)
+                            }
+                            HStack(spacing: 14) {
+                                Text("En İyi Seans: \(aiOpt.bestSession)")
+                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(Palette.ink)
+                                Text("·").foregroundStyle(Palette.muted)
+                                Text("En Güçlü Teyit: \(aiOpt.bestConfirmation)")
+                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(Palette.blue)
+                                Spacer()
+                                Text("Sızıntı: \(aiOpt.primaryLeak)")
+                                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(Palette.amber)
+                            }
+                            Text(aiOpt.recommendation)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Palette.muted)
+                        }
+                        .padding(12)
+                        .background(Palette.mint.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.mint.opacity(0.20), lineWidth: 0.9))
                         if let book = setup.playbook {
                             let idealImages = (try? BackupService.decodeImages(book.idealImagesData)) ?? []
                             DisclosureGroup {

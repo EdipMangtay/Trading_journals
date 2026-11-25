@@ -12,6 +12,8 @@ struct ResearchLabView: View {
     @State private var selectedTab = "Matrix"
     @State private var selectedCohortTrades: [TradeRecord] = []
     @State private var selectedCohortTitle = ""
+    @State private var coachQuestion = ""
+    @State private var coachHistory: [EdgeMLEngine.AICoachResponse] = []
 
     init(openTrade: @escaping (TradeRecord) -> Void, initialTab: String = "Matrix") {
         self.openTrade = openTrade
@@ -201,11 +203,179 @@ struct ResearchLabView: View {
         }
     }
 
-    // MARK: - Tab: ML Keşif (On-Device ML + NLP + Tilt)
+    // MARK: - Tab: ML Keşif (Ultra On-Device ML + Walk-Forward AUC + CUSUM Regime + AI Filter Sim + Coach)
     private var mlDiscoverySection: some View {
         let ml = filter.isEmpty ? store.scopedMLInsights : EdgeMLEngine.analyze(trades, calendar: store.preferences.calendar)
         let tiltColor: Color = ml.tilt.level == .elevated ? Palette.red : ml.tilt.level == .caution ? Palette.amber : Palette.mint
+        let regimeColor: Color = ml.regime.state == .regimeDrift ? Palette.red : ml.regime.state == .coldVariance ? Palette.amber : ml.regime.state == .hotEdge ? Palette.mint : Palette.blue
+        let displayedResponses: [EdgeMLEngine.AICoachResponse] = coachHistory.isEmpty ? [
+            EdgeMLEngine.askCoach(
+                question: EdgeMLEngine.suggestedCoachQuestions[0],
+                trades: trades,
+                setups: store.setups,
+                account: store.selectedAccount,
+                risk: store.scopedRisk,
+                calendar: store.preferences.calendar
+            )
+        ] : coachHistory
         return VStack(alignment: .leading, spacing: 20) {
+            // 1. Flagship Model Validation (Walk-Forward ROC-AUC) & Active Regime Ribbon
+            GlassRibbon(accent: regimeColor) {
+                HStack(spacing: 0) {
+                    TerminalMetric(
+                        title: "WALK-FORWARD ROC-AUC",
+                        value: ml.validation.isReady ? String(format: "%.2f", ml.validation.rocAUC) : "—",
+                        color: ml.validation.rocAUC >= 0.65 ? Palette.mint : Palette.blue,
+                        subtitle: ml.validation.isReady ? "\(ml.validation.qualityLabel) (n=\(ml.validation.evaluatedCount))" : "En az 8 işlem gerekir"
+                    )
+                    labDivider
+                    TerminalMetric(
+                        title: "AI EDGE AYRIŞTIRMA (WR LIFT)",
+                        value: ml.validation.isReady ? String(format: "%+.0f puan", ml.validation.winRateLiftPoints) : "—",
+                        color: ml.validation.winRateLiftPoints >= 0 ? Palette.mint : Palette.amber,
+                        subtitle: ml.validation.isReady ? "≥60: %\(Int(ml.validation.highEdgeWinRate)) WR · <48: %\(Int(ml.validation.lowEdgeWinRate)) WR" : "Yüksek vs Düşük Edge farkı"
+                    )
+                    labDivider
+                    TerminalMetric(
+                        title: "AKTİF REJİM (CUSUM/EWMA)",
+                        value: ml.regime.state.rawValue,
+                        color: regimeColor,
+                        subtitle: "Risk Çarpanı \(String(format: "%.2fx", ml.regime.riskMultiplier)) · EWMA \(Format.r(ml.regime.ewmaR))"
+                    )
+                    labDivider
+                    TerminalMetric(
+                        title: "AI FİLTRE SERMAYE KAZANCI",
+                        value: Format.money(ml.filterSimulation.savedCapital, currency: store.accountCurrency),
+                        color: Palette.outcome(ml.filterSimulation.savedCapital),
+                        subtitle: "\(ml.filterSimulation.skippedTrades) zayıf/kuralsız işlem elenirse"
+                    )
+                }
+            }
+
+            // 2. Counterfactual AI Filter Simulator (Actual vs. AI-Filtered Equity)
+            Panel(title: "AI FİLTRE KARŞI-OLGUSAL SİMÜLATÖRÜ", subtitle: "AI Edge < 42, kural ihlali veya <15 dk intikam işlemleri elenseydi sonuç nasıl olurdu?", accent: Palette.mint) {
+                let fs = ml.filterSimulation
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(fs.summary)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Palette.ink)
+                    HStack(spacing: 14) {
+                        aiSimCompareBox(
+                            title: "GERÇEK PERFORMANS (n=\(fs.totalTrades))",
+                            netPnL: Format.money(fs.actualNetPnL, currency: store.accountCurrency),
+                            winRate: Format.percent(fs.actualWinRate),
+                            avgR: Format.r(fs.actualAvgR),
+                            maxDD: Format.money(fs.actualMaxDrawdown, currency: store.accountCurrency),
+                            accent: Palette.muted
+                        )
+                        Image(systemName: "arrow.right.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(Palette.mint)
+                        aiSimCompareBox(
+                            title: "AI FİLTRELİ PERFORMANS (n=\(fs.keptTrades))",
+                            netPnL: Format.money(fs.filteredNetPnL, currency: store.accountCurrency),
+                            winRate: Format.percent(fs.filteredWinRate),
+                            avgR: Format.r(fs.filteredAvgR),
+                            maxDD: Format.money(fs.filteredMaxDrawdown, currency: store.accountCurrency),
+                            accent: Palette.mint
+                        )
+                    }
+                    HStack(spacing: 8) {
+                        Image(systemName: "waveform.path.ecg").foregroundStyle(regimeColor)
+                        Text("Rejim Yorumu: \(ml.regime.summary) → \(ml.regime.advice)")
+                            .font(.system(size: 11)).foregroundStyle(Palette.muted)
+                    }
+                }
+            }
+
+            // 3. Multi-Turn Entity-Aware AI Trading Coach
+            Panel(title: "AI TRADING KOÇU — GÜNLÜĞÜNE SOR", subtitle: "Varlık-farkındalıklı (Parite, Strateji, Seans, QT/SSMT, AUC, Filtre, Kelly) doğal dil analizi", accent: Palette.mint) {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "sparkles").foregroundStyle(Palette.mint)
+                        TextField("Sorunu yaz (örn: NQ performansım nasıl? AI filtresi kullansaydım ne olurdu? Modelin AUC'si ne?)...", text: $coachQuestion)
+                            .textFieldStyle(EdgeTextFieldStyle())
+                            .onSubmit { runAICoach(coachQuestion) }
+                        Button {
+                            runAICoach(coachQuestion.isEmpty ? EdgeMLEngine.suggestedCoachQuestions[0] : coachQuestion)
+                        } label: {
+                            Label("AI Koça Sor", systemImage: "paperplane.fill")
+                        }
+                        .buttonStyle(EdgeButtonStyle(compact: true))
+                        if !coachHistory.isEmpty {
+                            Button("Temizle") { coachHistory.removeAll() }
+                                .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                        }
+                    }
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(EdgeMLEngine.suggestedCoachQuestions, id: \.self) { q in
+                                Button {
+                                    coachQuestion = q
+                                    runAICoach(q)
+                                } label: {
+                                    Text(q)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(Palette.ink.opacity(0.9))
+                                        .padding(.horizontal, 11).padding(.vertical, 6)
+                                        .background(Palette.field, in: Capsule())
+                                        .overlay(Capsule().strokeBorder(Palette.mint.opacity(0.28), lineWidth: 0.9))
+                                        .contentShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    ForEach(displayedResponses.reversed()) { activeResponse in
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    if !activeResponse.question.isEmpty {
+                                        Text("SORU: \(activeResponse.question)")
+                                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                            .foregroundStyle(Palette.muted)
+                                    }
+                                    Label(activeResponse.headline, systemImage: "brain.head.profile")
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundStyle(Palette.mint)
+                                }
+                                Spacer()
+                                ForEach(activeResponse.metrics) { m in
+                                    HStack(spacing: 4) {
+                                        Text(m.label + ":").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundStyle(Palette.muted)
+                                        Text(m.value).font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(Palette.ink)
+                                    }
+                                    .padding(.horizontal, 8).padding(.vertical, 4)
+                                    .background(Palette.raised, in: Capsule())
+                                }
+                            }
+                            Text(activeResponse.answer)
+                                .font(.system(size: 12))
+                                .foregroundStyle(Palette.ink.opacity(0.92))
+                                .lineSpacing(4)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if !activeResponse.actionItems.isEmpty {
+                                Divider()
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text("AKSİYON ADIMLARI").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundStyle(Palette.blue)
+                                    ForEach(activeResponse.actionItems, id: \.self) { act in
+                                        HStack(alignment: .top, spacing: 6) {
+                                            Image(systemName: "arrow.right.circle.fill").font(.system(size: 11)).foregroundStyle(Palette.blue).padding(.top, 1)
+                                            Text(act).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.ink)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(14)
+                        .background(Palette.field.opacity(0.65), in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.mint.opacity(0.25), lineWidth: 1))
+                    }
+                }
+            }
+
             HStack(alignment: .top, spacing: 20) {
                 Panel(title: "ALTIN KURULUMLAR (OTOMATİK EDGE)", subtitle: "Empirical Bayes sıralı · ⚡ \(Format.number(ml.computeMs, digits: 1)) ms", accent: Palette.mint) {
                     if ml.goldenSetups.isEmpty {
@@ -728,6 +898,52 @@ struct ResearchLabView: View {
         } catch {
             store.report(error)
         }
+    }
+
+    private func aiSimCompareBox(title: String, netPnL: String, winRate: String, avgR: String, maxDD: String, accent: Color) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundStyle(accent)
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("NET P&L").font(.system(size: 8, design: .monospaced)).foregroundStyle(Palette.muted)
+                    Text(netPnL).font(.system(size: 13, weight: .bold, design: .monospaced))
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("WIN RATE").font(.system(size: 8, design: .monospaced)).foregroundStyle(Palette.muted)
+                    Text(winRate).font(.system(size: 13, weight: .bold, design: .monospaced))
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("ORT. R").font(.system(size: 8, design: .monospaced)).foregroundStyle(Palette.muted)
+                    Text(avgR).font(.system(size: 13, weight: .bold, design: .monospaced))
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("MAX DD").font(.system(size: 8, design: .monospaced)).foregroundStyle(Palette.muted)
+                    Text(maxDD).font(.system(size: 13, weight: .bold, design: .monospaced))
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(accent.opacity(0.22), lineWidth: 0.9))
+    }
+
+    private func runAICoach(_ q: String) {
+        let trimmed = q.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let reply = EdgeMLEngine.askCoach(
+            question: trimmed,
+            trades: trades,
+            setups: store.setups,
+            account: store.selectedAccount,
+            risk: store.scopedRisk,
+            calendar: store.preferences.calendar
+        )
+        coachHistory.append(reply)
+        if coachHistory.count > 6 {
+            coachHistory.removeFirst()
+        }
+        coachQuestion = ""
     }
 
     // MARK: - Disclaimer
