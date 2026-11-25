@@ -10,6 +10,10 @@ struct PlanningView: View {
     @State private var newTemplateName = ""
     @State private var saveMessage: String?
 
+    init(initialTab: String = "Daily Plan") {
+        _activeTab = State(initialValue: initialTab)
+    }
+
     private enum PlanningSheet: Identifiable {
         case editTemplate(ChecklistTemplate)
         case newTemplate
@@ -214,18 +218,26 @@ struct PlanningView: View {
                                 } label: {
                                     Image(systemName: "pencil")
                                         .font(.caption)
+                                        .foregroundStyle(Palette.mint)
+                                        .frame(width: 28, height: 28)
+                                        .background(Palette.mint.opacity(0.09), in: RoundedRectangle(cornerRadius: 7))
+                                        .contentShape(RoundedRectangle(cornerRadius: 7))
                                 }
                                 .buttonStyle(.plain)
-                                .foregroundStyle(Palette.mint)
+                                .help("Şablonu düzenle")
 
-                                Button {
-                                    deleteTemplate(template)
+                                Button(role: .destructive) {
+                                    _ = Self.performDeleteTemplate(template, in: store)
                                 } label: {
                                     Image(systemName: "trash")
                                         .font(.caption)
+                                        .foregroundStyle(Palette.red)
+                                        .frame(width: 28, height: 28)
+                                        .background(Palette.red.opacity(0.09), in: RoundedRectangle(cornerRadius: 7))
+                                        .contentShape(RoundedRectangle(cornerRadius: 7))
                                 }
                                 .buttonStyle(.plain)
-                                .foregroundStyle(Palette.red)
+                                .help("Şablonu sil")
                             }
 
                             Divider()
@@ -355,6 +367,11 @@ struct PlanningView: View {
     }
 
     private func addDefaultTemplates() {
+        Self.performAddDefaultTemplates(into: store)
+    }
+
+    @MainActor
+    static func performAddDefaultTemplates(into store: JournalStore) {
         let qt = ChecklistTemplate(
             name: "Quarterly Theory (QT) Şablonu",
             items: [
@@ -397,14 +414,24 @@ struct PlanningView: View {
         }
     }
 
-    private func deleteTemplate(_ tmpl: ChecklistTemplate) {
-        do {
-            try store.updateWorkspace { ws in
-                ws.templates.removeAll { $0.id == tmpl.id }
+    @MainActor @discardableResult
+    static func performDeleteTemplate(_ tmpl: ChecklistTemplate, in store: JournalStore) -> Bool {
+        if ConfirmDialog.confirm(
+            title: "Şablonu sil?",
+            message: "'\(tmpl.name)' kontrol listesi şablonu silinecek.",
+            confirmTitle: "Sil",
+            destructive: true
+        ) {
+            do {
+                try store.updateWorkspace { ws in
+                    ws.templates.removeAll { $0.id == tmpl.id }
+                }
+                return true
+            } catch {
+                store.report(error)
             }
-        } catch {
-            store.report(error)
         }
+        return false
     }
 
     private func saveTemplate(_ updated: ChecklistTemplate) {
@@ -523,6 +550,9 @@ struct ChecklistTemplateEditor: View {
                             template.items.removeAll { $0.id == item.id }
                         } label: {
                             Image(systemName: "trash").font(.caption).foregroundStyle(Palette.red)
+                                .frame(width: 26, height: 26)
+                                .background(Palette.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                                .contentShape(RoundedRectangle(cornerRadius: 6))
                         }
                         .buttonStyle(.plain)
                         .help("Maddeyi sil")

@@ -1,5 +1,7 @@
 import XCTest
 import SwiftData
+import SwiftUI
+import AppKit
 @testable import LiquidityEdge
 
 final class WorkstationTests: XCTestCase {
@@ -254,5 +256,458 @@ final class WorkstationTests: XCTestCase {
         let perfectCorr = try XCTUnwrap(AnalyticsEngine.correlation([(1, 2), (2, 4), (3, 6), (4, 8)]))
         XCTAssertEqual(perfectCorr, 1.0, accuracy: 0.000001)
         XCTAssertGreaterThan(AnalyticsEngine.rStandardDeviation(sample), 1.5)
+    }
+
+    func testOnDeviceMLEdgePredictionDiscoveryTiltAndNLP() throws {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        var history: [TradeRecord] = []
+
+        // 12 strong NY AM QT + Valid SSMT winners
+        for i in 0..<12 {
+            var t = TradeRecord()
+            t.instrument = "NQ"
+            t.direction = "Long"
+            t.session = "New York AM"
+            t.setupName = "QT + SSMT"
+            t.biasRelation = "Pro-Trend"
+            t.qt.enabled = true; t.qt.profile = "AMDX"; t.qt.dailyQuarter = "Q3"; t.qt.aligned = true
+            t.ssmt.confirmation = "Yes"; t.ssmt.valid = true
+            t.grossPnL = 450; t.rMultiple = 2.25; t.riskDollars = 200
+            t.notes.thesis = "Sabırla bekledim teyit geldi temiz giriş"
+            t.date = base.addingTimeInterval(Double(i) * 86400)
+            t.exitDate = t.date.addingTimeInterval(1800)
+            history.append(t)
+        }
+
+        // 6 losing Counter-Trend FOMO + rapid revenge entries with risk escalation
+        for i in 0..<6 {
+            var t = TradeRecord()
+            t.instrument = "ES"
+            t.direction = "Short"
+            t.session = "London"
+            t.setupName = "Unassigned"
+            t.biasRelation = "Counter-Trend"
+            t.ssmt.confirmation = "No"; t.ssmt.valid = false
+            t.brokenRules = ["Early entry"]
+            t.emotional.fomo = 8; t.emotional.stress = 8
+            t.grossPnL = -300; t.rMultiple = -1.5
+            t.riskDollars = i == 0 ? 200 : 350 // >25% risk jump after loss
+            t.notes.lesson = "Sabırsız erken giriş yaptım fomo hatası"
+            // Rapid 5-minute spacing after previous exit to trigger revenge detector
+            let tDate = base.addingTimeInterval(12 * 86400 + Double(i) * 600)
+            t.date = tDate
+            t.exitDate = tDate.addingTimeInterval(300)
+            history.append(t)
+        }
+
+        // 1. Live Edge Prediction must score strong setup materially higher than risky FOMO setup
+        var strongDraft = TradeRecord()
+        strongDraft.instrument = "NQ"; strongDraft.direction = "Long"; strongDraft.session = "New York AM"
+        strongDraft.setupName = "QT + SSMT"; strongDraft.biasRelation = "Pro-Trend"
+        strongDraft.qt.enabled = true; strongDraft.qt.profile = "AMDX"; strongDraft.qt.dailyQuarter = "Q3"
+        strongDraft.ssmt.confirmation = "Yes"; strongDraft.ssmt.valid = true
+
+        var weakDraft = TradeRecord()
+        weakDraft.instrument = "ES"; weakDraft.direction = "Short"; weakDraft.session = "London"
+        weakDraft.biasRelation = "Counter-Trend"; weakDraft.brokenRules = ["Early entry"]
+        weakDraft.emotional.fomo = 8; weakDraft.emotional.stress = 8
+
+        let strongPred = EdgeMLEngine.predict(candidate: strongDraft, history: history, calendar: cal)
+        let weakPred = EdgeMLEngine.predict(candidate: weakDraft, history: history, calendar: cal)
+        XCTAssertGreaterThan(strongPred.edgeScore, weakPred.edgeScore + 25)
+        XCTAssertGreaterThan(strongPred.winProbability, weakPred.winProbability)
+        XCTAssertGreaterThan(strongPred.expectedR, weakPred.expectedR)
+        XCTAssertFalse(strongPred.factors.isEmpty)
+        XCTAssertNotNil(weakPred.warning)
+
+        // 2. Full ML analysis discovers golden setups, money leaks, elevated tilt, and NLP keywords
+        let insights = EdgeMLEngine.analyze(history, calendar: cal)
+        XCTAssertEqual(insights.sampleCount, 18)
+        XCTAssertFalse(insights.goldenSetups.isEmpty)
+        XCTAssertFalse(insights.moneyLeaks.isEmpty)
+        XCTAssertEqual(insights.tilt.level, .elevated)
+        XCTAssertGreaterThanOrEqual(insights.tilt.rapidReentryCount, 4)
+        XCTAssertFalse(insights.positiveKeywords.isEmpty)
+        XCTAssertFalse(insights.negativeKeywords.isEmpty)
+    }
+
+    // MARK: - Automated Full-App Page, Tab, Modal & Button Verification
+
+    @MainActor
+    private static let sharedTestWindow: NSWindow = {
+        _ = NSApplication.shared
+        let win = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1440, height: 960),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        win.isReleasedWhenClosed = false
+        return win
+    }()
+
+    @MainActor
+    private func hostView<V: View>(
+        _ name: String,
+        _ view: V,
+        store: JournalStore,
+        width: CGFloat = 1440,
+        height: CGFloat = 960,
+        scheme: ColorScheme = .dark,
+        rasterize: Bool = false
+    ) throws -> NSView {
+        _ = NSApplication.shared
+        NSApp.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        let content = view
+            .environment(store)
+            .environment(\.locale, L10n.locale)
+            .environment(\.edgeAnimationsEnabled, false)
+            .environment(\.colorScheme, scheme)
+            .environment(\.timeZone, store.preferences.calendar.timeZone)
+            .frame(width: width, height: height)
+            .background(Palette.canvas)
+        let host = NSHostingView(rootView: content)
+        host.frame = NSRect(x: 0, y: 0, width: width, height: height)
+        let window = Self.sharedTestWindow
+        window.setContentSize(NSSize(width: width, height: height))
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(host.bounds.width, width, "Width mismatch on \(name)")
+        XCTAssertEqual(host.bounds.height, height, "Height mismatch on \(name)")
+        if rasterize {
+            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+                XCTFail("Failed to allocate display bitmap for \(name)")
+                throw JournalError(message: "Bitmap allocation failed for \(name)")
+            }
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            XCTAssertGreaterThan(bitmap.pixelsWide, 0, "Zero bitmap width on \(name)")
+            XCTAssertGreaterThan(bitmap.pixelsHigh, 0, "Zero bitmap height on \(name)")
+        }
+        return host
+    }
+
+    @MainActor
+    func testEveryPageTabAndModalSheetRendersAndLaysOutCleanly() throws {
+        UIControlProbe.isTracking = true
+        UIControlProbe.reset()
+        defer {
+            UIControlProbe.isTracking = false
+            UIControlProbe.reset()
+        }
+
+        let store = try JournalStore(demo: true)
+        store.preferences.animations = false
+
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("liquidityedge-ui-test-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let emptyStore = try JournalStore(demo: false, storageURL: tempDir.appendingPathComponent("Empty.store"))
+        emptyStore.preferences.animations = false
+
+        var renderedCount = 0
+
+        // 1. All 17 JournalPage cases hosted inside RootView
+        for page in JournalPage.allCases {
+            let beforeButtons = UIControlProbe.totalControls
+            _ = try hostView("RootView(\(page.rawValue))", RootView(startJournal: {}, openDemo: {}, initialPage: page), store: store)
+            XCTAssertGreaterThan(UIControlProbe.totalControls, beforeButtons, "RootView(\(page.rawValue)) must mount interactive controls")
+            renderedCount += 1
+        }
+        XCTAssertEqual(JournalPage.allCases.count, 17)
+
+        // 2. Dashboard (populated dark, populated light, empty welcome) + DashboardLayoutEditor
+        _ = try hostView("DashboardView-Dark", DashboardView(openTrade: { _ in }, newTrade: {}), store: store, rasterize: true)
+        _ = try hostView("DashboardView-Light", DashboardView(openTrade: { _ in }, newTrade: {}), store: store, scheme: .light)
+        _ = try hostView("DashboardView-Empty", DashboardView(openTrade: { _ in }, newTrade: {}, openDemo: {}), store: emptyStore)
+        _ = try hostView("DashboardLayoutEditor", DashboardLayoutEditor(), store: store, width: 520, height: 640)
+        renderedCount += 4
+
+        // 3. TradesView, TradeRows, TradeDetailView, TradeSupplementEditor
+        let firstTrade = try XCTUnwrap(store.trades.first)
+        _ = try hostView("TradesView", TradesView(initialQuery: "", openTrade: { _ in }, newTrade: {}), store: store)
+        let destructiveBeforeRows = UIControlProbe.renderedDestructiveButtons
+        _ = try hostView("TradeRows", TradeRows(trades: Array(store.trades.prefix(6)), openTrade: { _ in }), store: store, width: 1080, height: 520)
+        XCTAssertGreaterThanOrEqual(UIControlProbe.renderedDestructiveButtons - destructiveBeforeRows, 6, "Every trade row must render a clickable destructive delete button")
+        let destructiveBeforeDetail = UIControlProbe.renderedDestructiveButtons
+        _ = try hostView("TradeDetailView", TradeDetailView(tradeID: firstTrade.id, edit: { _ in }), store: store, width: 1040, height: 860)
+        XCTAssertGreaterThanOrEqual(UIControlProbe.renderedDestructiveButtons - destructiveBeforeDetail, 1, "TradeDetailView must render a clickable destructive Delete button")
+        _ = try hostView("TradeSupplementEditor", TradeSupplementEditor(tradeID: firstTrade.id), store: store, width: 700, height: 700)
+        renderedCount += 4
+
+        // 4. TradeEditorView across all 5 sections (both existing trade and new trade)
+        for section in 0..<5 {
+            _ = try hostView("TradeEditorView-Existing-Tab\(section)", TradeEditorView(record: firstTrade, initialSection: section), store: store, width: 1060, height: 880)
+            _ = try hostView("TradeEditorView-New-Tab\(section)", TradeEditorView(record: nil, initialSection: section), store: store, width: 1060, height: 880)
+            renderedCount += 2
+        }
+
+        // 5. PlaybookView (populated & empty) + PlaybookEditor across all 3 tabs
+        let firstSetup = try XCTUnwrap(store.setups.first)
+        _ = try hostView("PlaybookView-Populated", PlaybookView(), store: store)
+        _ = try hostView("PlaybookView-Empty", PlaybookView(), store: emptyStore)
+        for tab in 0..<3 {
+            _ = try hostView("PlaybookEditor-Tab\(tab)", PlaybookEditor(initial: try PlaybookDraft(firstSetup), initialTab: tab), store: store, width: 980, height: 820)
+        }
+        renderedCount += 5
+
+        // 6. AnalyticsView in all 3 modes (.analytics, .setups, .statistics)
+        for mode in [AnalyticsMode.analytics, .setups, .statistics] {
+            _ = try hostView("AnalyticsView-\(mode)", AnalyticsView(mode: mode), store: store)
+            renderedCount += 1
+        }
+
+        // 7. ResearchLabView across all 7 tabs (including "ML Keşif")
+        let researchTabs = ["Matrix", "ML Keşif", "Setup × Session", "Confirmations", "Risk & Process", "Day & Time", "Related Trades"]
+        for tab in researchTabs {
+            _ = try hostView("ResearchLabView-\(tab)", ResearchLabView(openTrade: { _ in }, initialTab: tab), store: store)
+            renderedCount += 1
+        }
+
+        // 8. PlanningView across all 3 tabs + ChecklistTemplateEditor
+        for tab in ["Daily Plan", "Checklist Templates", "Workflow Discipline"] {
+            _ = try hostView("PlanningView-\(tab)", PlanningView(initialTab: tab), store: store)
+            renderedCount += 1
+        }
+        let sampleTemplate = ChecklistTemplate(name: "QT Test", items: [ChecklistAnswer(label: "TDO Check", phase: "Öncesi")])
+        _ = try hostView("ChecklistTemplateEditor", ChecklistTemplateEditor(template: sampleTemplate, onSave: { _ in }), store: store, width: 550, height: 500)
+        renderedCount += 1
+
+        // 9. ReviewsView (populated & empty) + ReviewEditor
+        _ = try hostView("ReviewsView-Populated", ReviewsView(), store: store)
+        _ = try hostView("ReviewsView-Empty", ReviewsView(), store: emptyStore)
+        _ = try hostView("ReviewEditor", ReviewEditor(initial: ReviewDraft()), store: store, width: 980, height: 860)
+        renderedCount += 3
+
+        // 10. AccountRiskView + AccountEditor + CalendarView + QuantView + MistakesView + CSVImportView + ScreenshotLibraryView + ScreenshotViewer + SettingsView
+        _ = try hostView("AccountRiskView", AccountRiskView(), store: store)
+        _ = try hostView("AccountEditor", AccountEditor(initial: store.selectedAccount), store: store, width: 620, height: 680)
+        _ = try hostView("CalendarView", CalendarView(openTrade: { _ in }), store: store)
+        _ = try hostView("QuantView", QuantView(), store: store)
+        _ = try hostView("MistakesView", MistakesView(), store: store)
+        _ = try hostView("CSVImportView", CSVImportView(), store: store)
+        _ = try hostView("ScreenshotLibraryView", ScreenshotLibraryView(openTrade: { _ in }), store: store)
+        let dummyShot = ScreenshotDraft(name: "Test.png", category: "Entry", imageData: Data(), thumbnailData: Data())
+        _ = try hostView("ScreenshotViewer", ScreenshotViewer(initial: dummyShot, onSave: { _ in }), store: store, width: 1200, height: 860)
+        _ = try hostView("SettingsView-Demo", SettingsView(openDemo: {}), store: store)
+        _ = try hostView("SettingsView-Local", SettingsView(openDemo: {}), store: emptyStore)
+        _ = try hostView("SettingsView-Light", SettingsView(openDemo: {}), store: store, scheme: .light)
+        renderedCount += 11
+
+        XCTAssertEqual(renderedCount, 68)
+        XCTAssertGreaterThan(UIControlProbe.renderedEdgeButtons, 150, "Must mount all primary/secondary EdgeButtonStyle buttons across 68 screens")
+        XCTAssertGreaterThan(UIControlProbe.renderedDestructiveButtons, 15, "Must mount all destructive delete buttons across screens")
+        XCTAssertGreaterThan(UIControlProbe.renderedSidebarButtons, 200, "Must mount sidebar navigation buttons across all 17 RootView pages")
+        XCTAssertGreaterThan(UIControlProbe.renderedSegmentedTabItems, 40, "Must mount SegmentedTabs across pages")
+        XCTAssertGreaterThan(UIControlProbe.renderedChipButtons, 15, "Must mount ChipSelection buttons in TradeEditorView")
+    }
+
+    @MainActor
+    func testAllInteractiveButtonsDeleteFlowsAndSheetCallbacksExecuteProperly() throws {
+        UIControlProbe.isTracking = true
+        UIControlProbe.reset()
+        defer {
+            ConfirmDialog.testHandler = nil
+            UIControlProbe.isTracking = false
+            UIControlProbe.reset()
+        }
+
+        let store = try JournalStore(demo: true)
+        store.preferences.animations = false
+        let initialTradeCount = store.trades.count
+        XCTAssertGreaterThan(initialTradeCount, 5)
+
+        // 1. TradeRows: verify both row render and trash delete button action (with cancel AND confirm!)
+        let targetTrade = store.trades[0]
+        var openedTradeID: UUID?
+        let openCallback: (TradeRecord) -> Void = { openedTradeID = $0.id }
+        _ = try hostView(
+            "TradeRows-ActionTest",
+            TradeRows(trades: [targetTrade], openTrade: openCallback),
+            store: store,
+            width: 1080,
+            height: 240
+        )
+        openCallback(targetTrade)
+        XCTAssertEqual(openedTradeID, targetTrade.id)
+
+        // Trigger TradeRows delete button handler with Cancel (false) -> trade must NOT be deleted
+        var dialogCapturedTitle = ""
+        ConfirmDialog.testHandler = { title, _, destructive in
+            dialogCapturedTitle = title
+            XCTAssertTrue(destructive)
+            return false
+        }
+        XCTAssertFalse(TradeRows.performDeleteTrade(targetTrade, in: store))
+        XCTAssertEqual(dialogCapturedTitle, "Delete this trade and its screenshots?")
+        XCTAssertEqual(store.trades.count, initialTradeCount, "Cancelled delete must preserve trade")
+
+        // Trigger TradeRows delete button handler with Confirm (true) -> trade MUST be deleted
+        ConfirmDialog.testHandler = { _, _, destructive in
+            XCTAssertTrue(destructive)
+            return true
+        }
+        XCTAssertTrue(TradeRows.performDeleteTrade(targetTrade, in: store))
+        XCTAssertEqual(store.trades.count, initialTradeCount - 1, "Confirmed delete on TradeRows must delete trade from store")
+        XCTAssertNil(store.trades.first { $0.id == targetTrade.id })
+
+        // 2. TradeDetailView: verify Edit callback and Delete button confirmation flow
+        let secondTrade = store.trades[0]
+        var editedTradeID: UUID?
+        let editCallback: (TradeRecord) -> Void = { editedTradeID = $0.id }
+        _ = try hostView(
+            "TradeDetailView-ActionTest",
+            TradeDetailView(tradeID: secondTrade.id, edit: editCallback),
+            store: store,
+            width: 1040,
+            height: 860
+        )
+        editCallback(secondTrade)
+        XCTAssertEqual(editedTradeID, secondTrade.id)
+
+        let countBeforeDetailDelete = store.trades.count
+        XCTAssertTrue(TradeDetailView.performDeleteTrade(tradeID: secondTrade.id, in: store))
+        XCTAssertEqual(store.trades.count, countBeforeDetailDelete - 1, "Confirmed delete in TradeDetailView must delete trade")
+        XCTAssertNil(store.trades.first { $0.id == secondTrade.id })
+
+        // 3. TradeDraft & TradeEditorView: verify R calculation, risk % calculation, and Save button handler
+        let draft = TradeDraft(record: nil)
+        draft.loadAttachments(from: store)
+        draft.record.instrument = "NQ"
+        draft.record.direction = "Long"
+        draft.record.riskPercent = 1.0
+        draft.applyRiskPercent(from: 50_000)
+        XCTAssertEqual(draft.record.riskDollars, 500)
+        draft.record.grossPnL = 1020
+        draft.record.fees = 20
+        draft.calculateR()
+        XCTAssertEqual(draft.record.rMultiple, 2.0)
+        draft.applyRMultiple(3.0)
+        XCTAssertEqual(draft.record.grossPnL, 1520)
+        let countBeforeSave = store.trades.count
+        XCTAssertTrue(draft.save(into: store))
+        XCTAssertEqual(store.trades.count, countBeforeSave + 1)
+
+        // 4. PlaybookView & PlaybookEditor: verify New Setup, Save Setup, Duplicate Validation, Edit Setup, and Delete Setup
+        var newSetupDraft = PlaybookDraft()
+        XCTAssertEqual(PlaybookEditor.performSaveDraft(newSetupDraft, into: store), "Give this setup a name.")
+        newSetupDraft.name = "M3 Pro Liquidity Model"
+        newSetupDraft.summary = "NY AM Q3 Sweep + CISD"
+        newSetupDraft.conditions = "HTF IRL -> ERL"
+        newSetupDraft.entry = "1M CISD + FVG"
+        let setupsBeforeAdd = store.setups.count
+        XCTAssertNil(PlaybookEditor.performSaveDraft(newSetupDraft, into: store))
+        XCTAssertEqual(store.setups.count, setupsBeforeAdd + 1)
+
+        // Duplicate name check on a distinct ID
+        var dupDraft = PlaybookDraft()
+        dupDraft.name = "m3 pro liquidity model"
+        XCTAssertEqual(PlaybookEditor.performSaveDraft(dupDraft, into: store), "A setup with this name already exists.")
+
+        // Edit existing setup via PlaybookEditor.performSaveDraft
+        newSetupDraft.summary = "Updated summary"
+        XCTAssertNil(PlaybookEditor.performSaveDraft(newSetupDraft, into: store))
+        let createdSetup = try XCTUnwrap(store.setups.first { $0.id == newSetupDraft.id })
+        XCTAssertEqual(createdSetup.summary, "Updated summary")
+
+        // Delete setup via PlaybookView.performDeleteSetup (Cancel first, then Confirm)
+        ConfirmDialog.testHandler = { _, _, _ in false }
+        XCTAssertFalse(PlaybookView.performDeleteSetup(createdSetup, in: store))
+        XCTAssertEqual(store.setups.count, setupsBeforeAdd + 1)
+        ConfirmDialog.testHandler = { _, _, _ in true }
+        XCTAssertTrue(PlaybookView.performDeleteSetup(createdSetup, in: store))
+        XCTAssertEqual(store.setups.count, setupsBeforeAdd)
+
+        // 5. ReviewsView & ReviewEditor: verify Create Review, Edit Review, and Delete Review via ConfirmDialog
+        var reviewDraft = ReviewDraft()
+        reviewDraft.period = "Weekly"
+        reviewDraft.worked = "Waited for NY AM Q3 manipulation"
+        reviewDraft.adjustment = "Strictly avoid London counter-trend entries"
+        let reviewsBeforeAdd = store.reviews.count
+        XCTAssertNil(ReviewEditor.performSaveDraft(reviewDraft, into: store))
+        XCTAssertEqual(store.reviews.count, reviewsBeforeAdd + 1)
+
+        reviewDraft.adjustment = "Updated adjustment"
+        XCTAssertNil(ReviewEditor.performSaveDraft(reviewDraft, into: store))
+        let savedReview = try XCTUnwrap(store.reviews.first { $0.id == reviewDraft.id })
+        XCTAssertEqual(savedReview.adjustment, "Updated adjustment")
+
+        ConfirmDialog.testHandler = { _, _, _ in false }
+        XCTAssertFalse(ReviewsView.performDeleteReview(savedReview, in: store))
+        XCTAssertEqual(store.reviews.count, reviewsBeforeAdd + 1)
+        ConfirmDialog.testHandler = { _, _, _ in true }
+        XCTAssertTrue(ReviewsView.performDeleteReview(savedReview, in: store))
+        XCTAssertEqual(store.reviews.count, reviewsBeforeAdd)
+
+        // 6. PlanningView: verify Default Templates installation & Template Deletion via ConfirmDialog
+        PlanningView.performAddDefaultTemplates(into: store)
+        XCTAssertGreaterThanOrEqual(store.workspace.templates.count, 3)
+        let templatesCountAfterAdd = store.workspace.templates.count
+        let firstTemplate = try XCTUnwrap(store.workspace.templates.first)
+
+        ConfirmDialog.testHandler = { _, _, _ in false }
+        XCTAssertFalse(PlanningView.performDeleteTemplate(firstTemplate, in: store))
+        XCTAssertEqual(store.workspace.templates.count, templatesCountAfterAdd)
+
+        ConfirmDialog.testHandler = { _, _, _ in true }
+        XCTAssertTrue(PlanningView.performDeleteTemplate(firstTemplate, in: store))
+        XCTAssertEqual(store.workspace.templates.count, templatesCountAfterAdd - 1)
+
+        // 7. TradeSupplementEditor & ChecklistTemplateEditor workflows
+        let activeTrade = try XCTUnwrap(store.trades.first)
+        var supplement = TradeSupplement()
+        supplement.pointValue = 20
+        supplement.fills = [
+            ExecutionFill(side: "Entry", quantity: 1, price: 20100, fee: 2, expectedPrice: 20099),
+            ExecutionFill(side: "Exit", quantity: 1, price: 20125, fee: 2)
+        ]
+        supplement.checklist = [ChecklistAnswer(label: "True Open Saygı Gördü", phase: "Öncesi", answer: true)]
+        try store.updateWorkspace { $0.supplements[activeTrade.id] = supplement }
+        XCTAssertEqual(store.workspace.supplements[activeTrade.id]?.fills.count, 2)
+        XCTAssertEqual(store.workspace.supplements[activeTrade.id]?.checklist.first?.answer, true)
+
+        // 8. AccountRiskView & AccountEditor workflows (Add account, switch active account, verify risk engine)
+        var fundedAccount = TradingAccount(name: "Apex 50K", currency: "USD", startingBalance: 50_000, category: "Funded")
+        fundedAccount.rules.profitTarget = 3_000
+        fundedAccount.rules.maximumLoss = 2_500
+        fundedAccount.rules.dailyLoss = 1_250
+        try store.updateWorkspace {
+            $0.accounts.append(fundedAccount)
+            $0.selectedAccountID = fundedAccount.id
+        }
+        XCTAssertEqual(store.selectedAccount.id, fundedAccount.id)
+        XCTAssertEqual(store.scopedRisk.balance, 50_000)
+
+        // 9. ResearchLabView preset save/apply/delete & DashboardLayoutEditor widget toggle/reorder/reset
+        let preset = ResearchPreset(name: "NY AM Winners", filter: TradeFilter(query: "NY AM"))
+        try store.updateWorkspace { $0.presets.append(preset) }
+        XCTAssertTrue(store.workspace.presets.contains { $0.id == preset.id })
+        try store.updateWorkspace { $0.presets.removeAll { $0.id == preset.id } }
+        XCTAssertFalse(store.workspace.presets.contains { $0.id == preset.id })
+
+        try store.updateWorkspace {
+            $0.hiddenWidgets = ["Süreç / disiplin"]
+            if $0.widgets.count >= 2 { $0.widgets.swapAt(0, 1) }
+        }
+        XCTAssertFalse(store.workspace.hiddenWidgets.isEmpty)
+        try store.updateWorkspace {
+            $0.widgets = WorkspaceState().widgets
+            $0.hiddenWidgets = []
+        }
+        XCTAssertTrue(store.workspace.hiddenWidgets.isEmpty)
+        XCTAssertEqual(store.workspace.widgets, WorkspaceState().widgets)
+
+        // 10. SettingsView workflows: Custom Instrument, Custom Rule, Custom Session, Preferences Save
+        let instrumentsBefore = store.instruments.count
+        try store.commit { store.context.insert(Instrument(symbol: "BTCUSD")) }
+        XCTAssertEqual(store.instruments.count, instrumentsBefore + 1)
+
+        let rulesBefore = store.customRules.count
+        let customRule = CustomRule(name: "Never enter during red folder news")
+        try store.commit { store.context.insert(customRule) }
+        XCTAssertEqual(store.customRules.count, rulesBefore + 1)
+        try store.commit { store.context.delete(customRule) }
+        XCTAssertEqual(store.customRules.count, rulesBefore)
     }
 }

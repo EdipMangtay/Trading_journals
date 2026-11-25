@@ -9,7 +9,6 @@ struct ReviewDraft: Identifiable {
 struct ReviewsView: View {
     @Environment(JournalStore.self) private var store
     @State private var draft: ReviewDraft?
-    @State private var deleting: Review?
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
@@ -37,7 +36,9 @@ struct ReviewsView: View {
                             HStack(spacing: 8) {
                                 Button { draft = ReviewDraft(review) } label: { Label(L10n.text("Open review"), systemImage: "arrow.up.right") }
                                     .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
-                                Button { deleting = review } label: { Image(systemName: "trash").frame(width: 14, height: 16) }
+                                Button(role: .destructive) {
+                                    _ = Self.performDeleteReview(review, in: store)
+                                } label: { Image(systemName: "trash").frame(width: 14, height: 16) }
                                     .buttonStyle(EdgeButtonStyle(prominent: false, compact: true)).help(L10n.text("Delete review")).accessibilityLabel(L10n.text("Delete review"))
                             }
                         }
@@ -51,9 +52,19 @@ struct ReviewsView: View {
             }.pagePadding()
         }
         .sheet(item: $draft) { initial in ReviewEditor(initial: initial).environment(store) }
-        .confirmationDialog(L10n.text("Delete this review?"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
-            Button(L10n.text("Delete review"), role: .destructive) { if let deleting { do { try store.commit { store.context.delete(deleting) } } catch { store.report(error) } }; deleting = nil }
+    }
+
+    @MainActor @discardableResult
+    static func performDeleteReview(_ review: Review, in store: JournalStore) -> Bool {
+        if ConfirmDialog.confirm(
+            title: "Delete this review?",
+            message: "Bu değerlendirme kaydı kalıcı olarak silinecek.",
+            confirmTitle: "Delete review",
+            destructive: true
+        ) {
+            do { try store.commit { store.context.delete(review) }; return true } catch { store.report(error) }
         }
+        return false
     }
 }
 struct ReviewEditor: View {
@@ -144,6 +155,15 @@ struct ReviewEditor: View {
         }.padding(.vertical, 12).overlay(alignment: .bottom) { if separator { Rectangle().fill(Palette.muted.opacity(0.1)).frame(height: 1) } }
     }
     private func save() {
+        if let err = Self.performSaveDraft(draft, into: store) {
+            self.error = err
+        } else {
+            dismiss()
+        }
+    }
+
+    @MainActor
+    static func performSaveDraft(_ draft: ReviewDraft, into store: JournalStore) -> String? {
         do {
             try store.commit {
                 let review: Review
@@ -161,7 +181,7 @@ struct ReviewEditor: View {
                 review.stop = draft.stop
                 review.adjustment = draft.adjustment
             }
-            dismiss()
-        } catch { self.error = error.localizedDescription }
+            return nil
+        } catch { return error.localizedDescription }
     }
 }

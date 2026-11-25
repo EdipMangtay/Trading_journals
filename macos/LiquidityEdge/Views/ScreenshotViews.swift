@@ -4,7 +4,6 @@ import AppKit
 
 struct ScreenshotAttachmentEditor: View {
     @Binding var shots: [ScreenshotDraft]
-    @State private var importing = false
     @State private var targeted = false
     @State private var category = "Entry"
     @State private var selected: ScreenshotDraft?
@@ -16,7 +15,7 @@ struct ScreenshotAttachmentEditor: View {
                 Picker(L10n.text("Category"), selection: $category) { ForEach(Catalog.screenshotCategories, id: \.self) { Text(L10n.text($0)) } }.controlSize(.large).frame(width: 270)
                 Spacer(minLength: 8)
                 if loading { ProgressView().controlSize(.small) }
-                Button { importing = true } label: { Label(L10n.text("Add images…"), systemImage: "photo.badge.plus") }.buttonStyle(EdgeButtonStyle(prominent: false))
+                Button { pickImages() } label: { Label(L10n.text("Add images…"), systemImage: "photo.badge.plus") }.buttonStyle(EdgeButtonStyle(prominent: false))
             }
             VStack(spacing: 11) {
                 Image(systemName: "photo.badge.plus").font(.system(size: 25, weight: .light)).foregroundStyle(Palette.mint)
@@ -40,16 +39,24 @@ struct ScreenshotAttachmentEditor: View {
                                 Text(verbatim: shot.name).font(.system(size: 9)).foregroundStyle(Palette.muted).lineLimit(1)
                             }
                             Spacer(minLength: 0)
-                            Button { shots.removeAll { $0.id == shot.id } } label: { Image(systemName: "trash").font(.system(size: 11)).foregroundStyle(Palette.red).frame(width: 28, height: 28).background(Palette.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 7)) }.buttonStyle(.plain).help(L10n.text("Remove attachment")).accessibilityLabel(L10n.text("Remove attachment"))
+                            Button { shots.removeAll { $0.id == shot.id } } label: { Image(systemName: "trash").font(.system(size: 11)).foregroundStyle(Palette.red).frame(width: 28, height: 28).background(Palette.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 7)).contentShape(RoundedRectangle(cornerRadius: 7)) }.buttonStyle(.plain).help(L10n.text("Remove attachment")).accessibilityLabel(L10n.text("Remove attachment"))
                         }
                     }.padding(10).background(Palette.raised.opacity(0.45), in: RoundedRectangle(cornerRadius: 13))
                         .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(Palette.muted.opacity(0.1)))
                 }
             }
             if let error { Label(L10n.text(error), systemImage: "exclamationmark.circle").font(.caption).foregroundStyle(Palette.amber).textSelection(.enabled) }
-        }.fileImporter(isPresented: $importing, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
-            switch result { case .success(let urls): importURLs(urls); case .failure(let failure): error = failure.localizedDescription }
-        }.sheet(item: $selected) { shot in ScreenshotViewer(initial: shot) { changed in if let index = shots.firstIndex(where: { $0.id == changed.id }) { shots[index] = changed } } }
+        }
+        .sheet(item: $selected) { shot in ScreenshotViewer(initial: shot) { changed in if let index = shots.firstIndex(where: { $0.id == changed.id }) { shots[index] = changed } } }
+    }
+    private func pickImages() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        if panel.runModal() == .OK, !panel.urls.isEmpty {
+            importURLs(panel.urls)
+        }
     }
     private func importURLs(_ urls: [URL]) {
         loading = true

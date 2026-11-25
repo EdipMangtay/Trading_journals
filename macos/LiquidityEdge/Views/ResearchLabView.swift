@@ -13,6 +13,11 @@ struct ResearchLabView: View {
     @State private var selectedCohortTrades: [TradeRecord] = []
     @State private var selectedCohortTitle = ""
 
+    init(openTrade: @escaping (TradeRecord) -> Void, initialTab: String = "Matrix") {
+        self.openTrade = openTrade
+        _selectedTab = State(initialValue: initialTab)
+    }
+
     private var trades: [TradeRecord] {
         filter.isEmpty ? store.scopedTrades : filter.apply(store.scopedTrades, calendar: store.preferences.calendar)
     }
@@ -35,7 +40,7 @@ struct ResearchLabView: View {
                     sampleCautionBanner
 
                     SegmentedTabs(
-                        options: ["Matrix", "Setup × Session", "Confirmations", "Risk & Process", "Day & Time", "Related Trades"],
+                        options: ["Matrix", "ML Keşif", "Setup × Session", "Confirmations", "Risk & Process", "Day & Time", "Related Trades"],
                         selection: $selectedTab,
                         title: { $0 }
                     )
@@ -43,6 +48,8 @@ struct ResearchLabView: View {
                     switch selectedTab {
                     case "Matrix":
                         matrixSection
+                    case "ML Keşif":
+                        mlDiscoverySection
                     case "Setup × Session":
                         setupSessionSection
                     case "Confirmations":
@@ -104,21 +111,28 @@ struct ResearchLabView: View {
                     HStack(spacing: 8) {
                         ForEach(store.workspace.presets) { preset in
                             HStack(spacing: 6) {
-                                Button(preset.name) {
+                                Button {
                                     filter = preset.filter
+                                } label: {
+                                    Text(preset.name)
+                                        .font(.caption.weight(.medium))
+                                        .foregroundStyle(Palette.mint)
+                                        .padding(.vertical, 3)
+                                        .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(Palette.mint)
 
                                 Button {
                                     deletePreset(preset)
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
-                                        .font(.system(size: 11))
+                                        .font(.system(size: 12))
                                         .foregroundStyle(Palette.muted)
+                                        .frame(width: 22, height: 22)
+                                        .contentShape(Circle())
                                 }
                                 .buttonStyle(.plain)
+                                .help("Kayıtlı filtreyi sil")
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
@@ -133,9 +147,7 @@ struct ResearchLabView: View {
                 Button("Filtreyi Temizle") {
                     filter = TradeFilter()
                 }
-                .font(.caption)
-                .foregroundStyle(Palette.amber)
-                .buttonStyle(.plain)
+                .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
             }
         }
         .padding(12)
@@ -186,6 +198,121 @@ struct ResearchLabView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Palette.amber.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.amber.opacity(0.2)))
+        }
+    }
+
+    // MARK: - Tab: ML Keşif (On-Device ML + NLP + Tilt)
+    private var mlDiscoverySection: some View {
+        let ml = filter.isEmpty ? store.scopedMLInsights : EdgeMLEngine.analyze(trades, calendar: store.preferences.calendar)
+        let tiltColor: Color = ml.tilt.level == .elevated ? Palette.red : ml.tilt.level == .caution ? Palette.amber : Palette.mint
+        return VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .top, spacing: 20) {
+                Panel(title: "ALTIN KURULUMLAR (OTOMATİK EDGE)", subtitle: "Empirical Bayes sıralı · ⚡ \(Format.number(ml.computeMs, digits: 1)) ms", accent: Palette.mint) {
+                    if ml.goldenSetups.isEmpty {
+                        Text("En az 4 işlemle istatistiksel olarak öne çıkan kombinasyonlar otomatik keşfedilir.").font(.caption).foregroundStyle(Palette.muted)
+                    } else {
+                        ForEach(ml.goldenSetups) { pat in
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(pat.title).font(.system(size: 13, weight: .semibold))
+                                    Text("\(pat.subtitle) · n = \(pat.sampleCount) · WR \(Format.percent(pat.winRate))")
+                                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.muted)
+                                }
+                                Spacer()
+                                VStack(alignment: .trailing, spacing: 3) {
+                                    Text(Format.r(pat.averageR)).font(.system(size: 14, weight: .bold, design: .monospaced)).foregroundStyle(Palette.mint)
+                                    Text(Format.money(pat.netPnL, currency: store.accountCurrency)).font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.muted)
+                                }
+                            }
+                            .padding(12)
+                            .background(Palette.mint.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.mint.opacity(0.22), lineWidth: 1))
+                        }
+                    }
+                }
+
+                Panel(title: "PARA SIZINTILARI (ML LEAK DETECTOR)", subtitle: "Kârlılığı aşağı çeken kalıplar", accent: Palette.amber) {
+                    if ml.moneyLeaks.isEmpty {
+                        Text("Belirgin negatif sızıntı kalıbı tespit edilmedi.").font(.caption).foregroundStyle(Palette.muted)
+                    } else {
+                        ForEach(ml.moneyLeaks) { pat in
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(pat.title).font(.system(size: 13, weight: .semibold))
+                                    Text("\(pat.subtitle) · n = \(pat.sampleCount) · WR \(Format.percent(pat.winRate))")
+                                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.muted)
+                                }
+                                Spacer()
+                                VStack(alignment: .trailing, spacing: 3) {
+                                    Text(Format.money(pat.netPnL, currency: store.accountCurrency)).font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundStyle(Palette.outcome(pat.netPnL))
+                                    Text(Format.r(pat.averageR)).font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.amber)
+                                }
+                            }
+                            .padding(12)
+                            .background(Palette.amber.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.amber.opacity(0.22), lineWidth: 1))
+                        }
+                    }
+                }
+            }
+
+            Panel(title: "DAVRANIŞ & TİLT ANOMALİ DEDEKTÖRÜ", subtitle: "Skor: \(ml.tilt.score)/100 · \(ml.tilt.level.rawValue)", accent: tiltColor) {
+                if ml.tilt.signals.isEmpty {
+                    Label("Kontrollü süreç: ardışık zarar sonrası intikam işlemi, risk artışı veya ani disiplin düşüşü yok.", systemImage: "checkmark.shield.fill")
+                        .font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.mint)
+                } else {
+                    ForEach(ml.tilt.signals) { sig in
+                        let c: Color = sig.severity >= 3 ? Palette.red : sig.severity == 2 ? Palette.amber : Palette.blue
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: sig.severity >= 3 ? "flame.fill" : "exclamationmark.triangle.fill")
+                                .foregroundStyle(c).padding(.top, 2)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(sig.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(c)
+                                Text(sig.detail).font(.system(size: 11)).foregroundStyle(Palette.muted)
+                            }
+                            Spacer()
+                        }
+                        .padding(11)
+                        .background(c.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
+                        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(c.opacity(0.24), lineWidth: 0.9))
+                    }
+                }
+            }
+
+            Panel(title: "NOTLARDAN NLP KELİME MADENCİLİĞİ (APPLE NATURALLANGUAGE)", subtitle: "İşlem tezi ve ders notlarındaki yüksek etkili düşünce kalıpları", accent: Palette.blue) {
+                if ml.positiveKeywords.isEmpty && ml.negativeKeywords.isEmpty {
+                    Text("Not ve tez alanlarını doldurdukça kazançlı ve zararlı işlemlerle ilişkili anahtar kelimeler burada otomatik çıkarılır.")
+                        .font(.caption).foregroundStyle(Palette.muted)
+                } else {
+                    HStack(alignment: .top, spacing: 20) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("POZİTİF ETKİLİ KAVRAMLAR").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(Palette.mint)
+                            ForEach(ml.positiveKeywords) { kw in
+                                HStack {
+                                    Text("“\(kw.keyword)”").font(.system(size: 12, weight: .semibold))
+                                    Spacer()
+                                    Text("n=\(kw.count) · WR \(Format.percent(kw.winRate))").font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.muted)
+                                    Text(Format.r(kw.averageR)).font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(Palette.mint)
+                                }
+                                .padding(9).background(Palette.mint.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("NEGATİF ETKİLİ KAVRAMLAR").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(Palette.red)
+                            ForEach(ml.negativeKeywords) { kw in
+                                HStack {
+                                    Text("“\(kw.keyword)”").font(.system(size: 12, weight: .semibold))
+                                    Spacer()
+                                    Text("n=\(kw.count) · WR \(Format.percent(kw.winRate))").font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.muted)
+                                    Text(Format.r(kw.averageR)).font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(Palette.red)
+                                }
+                                .padding(9).background(Palette.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
         }
     }
 

@@ -121,6 +121,56 @@ enum EdgeHaptics {
         NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
     }
 }
+
+/// Native AppKit NSAlert confirmation helper.
+/// Immune to macOS SwiftUI `.confirmationDialog` + `.sheet` presentation conflicts,
+/// working reliably from main windows, table rows, and nested sheets alike.
+enum ConfirmDialog {
+    @MainActor
+    static var testHandler: ((_ title: String, _ confirmTitle: String, _ destructive: Bool) -> Bool)?
+
+    @MainActor
+    static func confirm(
+        title: String,
+        message: String,
+        confirmTitle: String,
+        cancelTitle: String = "İptal",
+        destructive: Bool = false
+    ) -> Bool {
+        if let testHandler {
+            return testHandler(title, confirmTitle, destructive)
+        }
+        let alert = NSAlert()
+        alert.alertStyle = destructive ? .critical : .warning
+        alert.messageText = L10n.text(title)
+        alert.informativeText = L10n.text(message)
+        let okButton = alert.addButton(withTitle: L10n.text(confirmTitle))
+        if destructive { okButton.hasDestructiveAction = true }
+        alert.addButton(withTitle: L10n.text(cancelTitle))
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+}
+
+enum UIControlProbe {
+    @MainActor static var isTracking = false
+    @MainActor static var renderedEdgeButtons = 0
+    @MainActor static var renderedDestructiveButtons = 0
+    @MainActor static var renderedSidebarButtons = 0
+    @MainActor static var renderedSegmentedTabItems = 0
+    @MainActor static var renderedChipButtons = 0
+
+    @MainActor static func reset() {
+        renderedEdgeButtons = 0
+        renderedDestructiveButtons = 0
+        renderedSidebarButtons = 0
+        renderedSegmentedTabItems = 0
+        renderedChipButtons = 0
+    }
+
+    @MainActor static var totalControls: Int {
+        renderedEdgeButtons + renderedSidebarButtons + renderedSegmentedTabItems + renderedChipButtons
+    }
+}
 enum Format {
     static func money(_ value: Double, currency: String = "USD") -> String { value.formatted(.currency(code: currency).locale(L10n.locale).precision(.fractionLength(2))) }
     static func number(_ value: Double, digits: Int = 2) -> String { value.formatted(.number.locale(L10n.locale).precision(.fractionLength(digits))) }
@@ -189,6 +239,12 @@ struct EdgeButtonStyle: ButtonStyle {
             return prominent ? accent.opacity(hovered ? 0.85 : 0.55) : Palette.line.opacity(contrast == .increased ? 1 : hovered ? 1 : 0.8)
         }
         var body: some View {
+            let _ = {
+                if UIControlProbe.isTracking {
+                    UIControlProbe.renderedEdgeButtons += 1
+                    if configuration.role == .destructive { UIControlProbe.renderedDestructiveButtons += 1 }
+                }
+            }()
             let corner: CGFloat = compact ? 8 : 10
             configuration.label
                 .font(.system(size: compact ? 11 : 12, weight: .semibold))
@@ -236,6 +292,7 @@ struct NavigationButtonStyle: ButtonStyle {
         @Environment(\.edgeAnimationsEnabled) private var animationsEnabled
         @State private var hovered = false
         var body: some View {
+            let _ = { if UIControlProbe.isTracking { UIControlProbe.renderedSidebarButtons += 1 } }()
             configuration.label
                 .foregroundStyle(selected ? Palette.ink : Palette.muted)
                 .background(selected ? Palette.mint.opacity(0.1) : hovered ? Palette.raised.opacity(0.65) : Color.clear, in: RoundedRectangle(cornerRadius: 9))
@@ -301,6 +358,7 @@ private struct EdgeSegmentStyle: ButtonStyle {
         @Environment(\.isFocused) private var isFocused
         @State private var hovered = false
         var body: some View {
+            let _ = { if UIControlProbe.isTracking { UIControlProbe.renderedChipButtons += 1 } }()
             configuration.label
                 .foregroundStyle(selected ? Palette.ink : Palette.muted)
                 .background(selected ? Palette.raised : hovered ? Palette.raised.opacity(0.4) : .clear, in: RoundedRectangle(cornerRadius: 7))
@@ -318,6 +376,7 @@ struct SegmentedTabs<Value: Hashable>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let _ = { if UIControlProbe.isTracking { UIControlProbe.renderedSegmentedTabItems += options.count } }()
         HStack(spacing: 3) {
             ForEach(options, id: \.self) { value in
                 let isSelected = selection == value
@@ -338,9 +397,9 @@ struct SegmentedTabs<Value: Hashable>: View {
                                     .shadow(color: Color.black.opacity(0.12), radius: 3, x: 0, y: 1)
                             }
                         }
+                        .contentShape(RoundedRectangle(cornerRadius: 7))
                 }
                 .buttonStyle(.plain)
-                .contentShape(RoundedRectangle(cornerRadius: 7))
                 .accessibilityAddTraits(isSelected ? [.isSelected] : [])
             }
         }
@@ -552,6 +611,7 @@ struct SidebarRowHoverStyle: ButtonStyle {
         @Environment(\.edgeAnimationsEnabled) private var animationsEnabled
         @State private var hovered = false
         var body: some View {
+            let _ = { if UIControlProbe.isTracking { UIControlProbe.renderedSidebarButtons += 1 } }()
             configuration.label
                 .background(!selected && hovered ? Palette.raised.opacity(0.6) : .clear, in: RoundedRectangle(cornerRadius: 9))
                 .scaleEffect(configuration.isPressed ? 0.98 : 1.0)

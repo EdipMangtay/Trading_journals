@@ -6,7 +6,6 @@ struct TradeDetailView: View {
     @Environment(\.dismiss) private var dismiss
     var tradeID: UUID
     var edit: (TradeRecord) -> Void
-    @State private var deleting = false
     @State private var activeSheet: DetailSheet?
 
     private enum DetailSheet: Identifiable {
@@ -29,9 +28,12 @@ struct TradeDetailView: View {
                         .frame(width: 42, height: 42).background(Palette.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
                     Text(L10n.text("EXECUTION REVIEW")).font(.system(size: 11, weight: .semibold)).tracking(1.4).foregroundStyle(Palette.muted)
                     Spacer(minLength: 8)
-                    Button(role: .destructive) { deleting = true } label: { Label(L10n.text("Delete"), systemImage: "trash") }
-                        .buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.red).padding(.horizontal, 12).padding(.vertical, 10)
-                        .background(Palette.red.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
+                    Button(role: .destructive) {
+                        if Self.performDeleteTrade(tradeID: tradeID, in: store) {
+                            dismiss()
+                        }
+                    } label: { Label(L10n.text("Delete"), systemImage: "trash") }
+                        .buttonStyle(EdgeButtonStyle(prominent: false))
                     Button { activeSheet = .supplements } label: { Label("Fills & Checklist", systemImage: "list.bullet.clipboard") }.buttonStyle(EdgeButtonStyle(prominent: false))
                     Button { edit(t) } label: { Label(L10n.text("Edit trade"), systemImage: "pencil") }.buttonStyle(EdgeButtonStyle(prominent: false))
                     Button(L10n.text("Done")) { dismiss() }.buttonStyle(EdgeButtonStyle()).keyboardShortcut(.cancelAction)
@@ -243,7 +245,6 @@ struct TradeDetailView: View {
                 }
             }
         }.frame(width: sheetSize.width, height: sheetSize.height).background(Palette.canvas).foregroundStyle(Palette.ink).tint(Palette.mint)
-        .confirmationDialog(L10n.text("Delete this trade and its screenshots?"), isPresented: $deleting) { Button(L10n.text("Delete trade"), role: .destructive) { do { try store.deleteTrade(tradeID); dismiss() } catch { store.report(error) } } } message: { Text(L10n.text("This action cannot be undone. A saved backup can restore the trade.")) }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .image(let shot):
@@ -265,6 +266,19 @@ struct TradeDetailView: View {
         return CGSize(width: min(1040, max(720, visible.width - 96)), height: min(860, max(480, visible.height - 80)))
     }
     private func numeric(_ value: Double?) -> String { value.map { Format.number($0) } ?? "—" }
+
+    @MainActor @discardableResult
+    static func performDeleteTrade(tradeID: UUID, in store: JournalStore) -> Bool {
+        if ConfirmDialog.confirm(
+            title: "Delete this trade and its screenshots?",
+            message: "This action cannot be undone. A saved backup can restore the trade.",
+            confirmTitle: "Delete trade",
+            destructive: true
+        ) {
+            do { try store.deleteTrade(tradeID); return true } catch { store.report(error) }
+        }
+        return false
+    }
     private func detailRow(_ title: String, _ value: String) -> some View {
         HStack(alignment: .top, spacing: 20) {
             Text(L10n.text(title)).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.muted).frame(width: 155, alignment: .leading)
@@ -403,6 +417,9 @@ struct TradeSupplementEditor: View {
                             supplement.fills.removeAll { $0.id == fill.id }
                         } label: {
                             Image(systemName: "trash").font(.caption).foregroundStyle(Palette.red)
+                                .frame(width: 26, height: 26)
+                                .background(Palette.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                                .contentShape(RoundedRectangle(cornerRadius: 6))
                         }
                         .buttonStyle(.plain)
                         .help("Gerçekleşmeyi sil")
@@ -469,6 +486,9 @@ struct TradeSupplementEditor: View {
                             supplement.checklist.removeAll { $0.id == item.id }
                         } label: {
                             Image(systemName: "trash").font(.caption).foregroundStyle(Palette.red)
+                                .frame(width: 26, height: 26)
+                                .background(Palette.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                                .contentShape(RoundedRectangle(cornerRadius: 6))
                         }
                         .buttonStyle(.plain)
                         .help("Maddeyi sil")

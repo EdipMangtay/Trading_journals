@@ -97,6 +97,7 @@ struct AccountRiskView: View {
                             .padding(.horizontal, 12).padding(.vertical, 10)
                             .background(isSelected ? Palette.mint.opacity(0.08) : Palette.field.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
                             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(isSelected ? Palette.mint.opacity(0.3) : Palette.line.opacity(0.6), lineWidth: 1))
+                            .contentShape(RoundedRectangle(cornerRadius: 10))
                         }
                         .buttonStyle(.plain)
                     }

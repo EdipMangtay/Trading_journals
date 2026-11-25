@@ -124,6 +124,9 @@ struct DashboardView: View {
                         }
                         VStack(spacing: 24) { flagship(p, curve: curve); processRail(p, counts: counts, total: trades.count) }
                     }.edgeEntrance(delay: 0.07)
+                    if isAllTime && store.scopedMLInsights.sampleCount >= 4 {
+                        mlIntelligencePanel(store.scopedMLInsights).edgeEntrance(delay: 0.09)
+                    }
                     ForEach(store.workspace.widgets.filter { !store.workspace.hiddenWidgets.contains($0) }, id: \.self) { widget in
                         switch widget {
                         case "Risk & R":
@@ -263,6 +266,94 @@ struct DashboardView: View {
     }
     private var kpiDivider: some View {
         Rectangle().fill(Palette.line.opacity(0.7)).frame(width: 1, height: 42).padding(.horizontal, 16)
+    }
+    private func mlIntelligencePanel(_ ml: EdgeMLEngine.MLInsightsSnapshot) -> some View {
+        let tiltColor: Color = ml.tilt.level == .elevated ? Palette.red : ml.tilt.level == .caution ? Palette.amber : Palette.mint
+        return Panel(
+            title: "YEREL ML İSTİHBARAT & TİLT RADARI",
+            subtitle: "%100 Offline · Empirical Bayes · \(Format.number(ml.computeMs, digits: 1)) ms",
+            accent: tiltColor
+        ) {
+            HStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    Image(systemName: ml.tilt.level == .calm ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(tiltColor)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("DAVRANIŞ / TİLT DURUMU").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(Palette.muted)
+                        Text(ml.tilt.level.rawValue).font(.system(size: 13, weight: .bold)).foregroundStyle(tiltColor)
+                    }
+                }
+                Spacer()
+                if let firstSignal = ml.tilt.signals.first {
+                    Text("\(firstSignal.title) — \(firstSignal.detail)")
+                        .font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(2)
+                        .frame(maxWidth: 520, alignment: .trailing)
+                } else {
+                    Text("Ardışık zarar sonrası hızlı giriş veya risk sıçraması tespit edilmedi.")
+                        .font(.system(size: 11)).foregroundStyle(Palette.muted)
+                }
+                Badge(text: "Tilt \(ml.tilt.score)/100", color: tiltColor)
+            }
+            .padding(12)
+            .background(tiltColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(tiltColor.opacity(0.24), lineWidth: 1))
+
+            if !ml.goldenSetups.isEmpty || !ml.moneyLeaks.isEmpty {
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("ALTIN KURULUMLAR (OTOMATİK EDGE)", systemImage: "sparkles")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(Palette.mint)
+                        if ml.goldenSetups.isEmpty {
+                            Text("Daha fazla veriyle öne çıkan kombinasyonlar burada listelenir.").font(.caption).foregroundStyle(Palette.muted)
+                        } else {
+                            ForEach(ml.goldenSetups.prefix(2)) { pat in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(pat.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                                        Text("\(pat.subtitle) · n = \(pat.sampleCount) · WR \(Format.percent(pat.winRate))")
+                                            .font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.muted)
+                                    }
+                                    Spacer()
+                                    Text(Format.r(pat.averageR))
+                                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                        .foregroundStyle(Palette.mint)
+                                }
+                                .padding(10)
+                                .background(Palette.mint.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+                                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Palette.mint.opacity(0.2), lineWidth: 0.8))
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("PARA SIZINTILARI (RİSK ALANLARI)", systemImage: "exclamationmark.shield")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(Palette.amber)
+                        if ml.moneyLeaks.isEmpty {
+                            Text("Anlamlı negatif sızıntı kalıbı tespit edilmedi.").font(.caption).foregroundStyle(Palette.muted)
+                        } else {
+                            ForEach(ml.moneyLeaks.prefix(2)) { pat in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(pat.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                                        Text("\(pat.subtitle) · n = \(pat.sampleCount) · WR \(Format.percent(pat.winRate))")
+                                            .font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.muted)
+                                    }
+                                    Spacer()
+                                    Text(Format.money(pat.netPnL, currency: store.accountCurrency))
+                                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                        .foregroundStyle(Palette.outcome(pat.netPnL))
+                                }
+                                .padding(10)
+                                .background(Palette.amber.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+                                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Palette.amber.opacity(0.22), lineWidth: 0.8))
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
     }
     private func processRail(_ p: Performance, counts: [Classification: Int], total: Int) -> some View {
         let ordered: [Classification] = [.validWinner, .validLoser, .invalidWinner, .invalidLoser, .breakeven]

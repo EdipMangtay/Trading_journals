@@ -140,8 +140,14 @@ struct TradeEditorView: View {
         .background(Palette.panel)
     }
 
+    private var livePrediction: EdgeMLEngine.EdgePrediction {
+        EdgeMLEngine.predict(candidate: draft.record, history: store.scopedTrades, calendar: store.preferences.calendar)
+    }
+
     private var liveSummaryRibbon: some View {
         let t = draft.record
+        let pred = livePrediction
+        let mlColor: Color = pred.confidence == .insufficient ? Palette.muted : pred.edgeScore >= 65 ? Palette.mint : pred.edgeScore >= 45 ? Palette.blue : Palette.amber
         return HStack(spacing: 14) {
             HStack(spacing: 6) {
                 Text(verbatim: t.instrument.isEmpty ? "—" : t.instrument)
@@ -206,6 +212,18 @@ struct TradeEditorView: View {
 
             Spacer(minLength: 8)
 
+            if pred.confidence != .insufficient {
+                HStack(spacing: 5) {
+                    Image(systemName: "brain.head.profile").font(.system(size: 10, weight: .semibold)).foregroundStyle(mlColor)
+                    Text("ML \(pred.edgeScore)").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(mlColor)
+                    Text("· \(Format.percent(pred.winProbability))").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(Palette.ink.opacity(0.85))
+                }
+                .padding(.horizontal, 9).padding(.vertical, 4)
+                .background(mlColor.opacity(0.11), in: Capsule())
+                .overlay(Capsule().strokeBorder(mlColor.opacity(0.28), lineWidth: 0.9))
+                .help("Yerel ML Tahmini: \(Format.percent(pred.winProbability)) WR · \(Format.r(pred.expectedR)) ± \(Format.number(pred.uncertaintyBandR, digits: 2))R (\(pred.confidence.rawValue), n=\(pred.historyCount))")
+            }
+
             Badge(text: t.classification.rawValue, color: Palette.classification(t.classification))
         }
         .padding(.horizontal, 24).padding(.vertical, 10)
@@ -242,6 +260,7 @@ struct TradeEditorView: View {
                     .frame(maxWidth: .infinity)
                     .background(isSelected ? Palette.raised : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(isSelected ? Palette.mint.opacity(0.35) : Color.clear, lineWidth: 1))
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
             }
@@ -295,6 +314,7 @@ struct TradeEditorView: View {
         let quickInstruments = enabledInstruments.isEmpty ? Catalog.instruments : enabledInstruments
 
         return VStack(alignment: .leading, spacing: 18) {
+            liveMLScoreCard
             Panel(title: "01 / TEMEL İŞLEM BİLGİLERİ", subtitle: "Parite, yön, seans, hesap ve kurulumu tek tıkla seç") {
                 VStack(alignment: .leading, spacing: 18) {
                     // Instrument fast chips + custom text
@@ -359,6 +379,9 @@ struct TradeEditorView: View {
                                     Label(showQuickSetup ? "Kapat" : "Yeni strateji", systemImage: showQuickSetup ? "xmark" : "plus")
                                         .font(.system(size: 10, weight: .semibold))
                                         .foregroundStyle(Palette.mint)
+                                        .padding(.horizontal, 8).padding(.vertical, 4)
+                                        .background(Palette.mint.opacity(0.1), in: Capsule())
+                                        .contentShape(Capsule())
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -1010,6 +1033,85 @@ struct TradeEditorView: View {
         }
     }
 
+    private var liveMLScoreCard: some View {
+        let pred = livePrediction
+        let scoreColor: Color = pred.confidence == .insufficient ? Palette.muted : pred.edgeScore >= 65 ? Palette.mint : pred.edgeScore >= 45 ? Palette.blue : Palette.amber
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                HStack(spacing: 7) {
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(scoreColor)
+                        .frame(width: 28, height: 28)
+                        .background(scoreColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text("YEREL ML EDGE TAHMİNİ").font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(1.1).foregroundStyle(scoreColor)
+                            Badge(text: pred.confidence.rawValue, color: scoreColor)
+                        }
+                        Text(pred.confidence == .insufficient ? "En az 3 geçmiş işlemle canlı Bayes tahmini başlar." : "Geçmiş \(pred.historyCount) işlemden Empirical Bayes shrinkage modeli")
+                            .font(.system(size: 10)).foregroundStyle(Palette.muted)
+                    }
+                }
+                Spacer(minLength: 8)
+                if pred.confidence != .insufficient {
+                    HStack(spacing: 16) {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("EDGE SKOR").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(Palette.muted)
+                            Text("\(pred.edgeScore)/100").font(.system(size: 16, weight: .bold, design: .rounded)).monospacedDigit().foregroundStyle(scoreColor)
+                        }
+                        Rectangle().fill(Palette.line.opacity(0.6)).frame(width: 1, height: 26)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("KAZANMA OLASILIĞI").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(Palette.muted)
+                            Text(Format.percent(pred.winProbability)).font(.system(size: 15, weight: .bold, design: .rounded)).monospacedDigit().foregroundStyle(Palette.ink)
+                        }
+                        Rectangle().fill(Palette.line.opacity(0.6)).frame(width: 1, height: 26)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("BEKLENEN R BANDI").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(Palette.muted)
+                            Text("\(Format.r(pred.expectedR)) ± \(Format.number(pred.uncertaintyBandR, digits: 2))R")
+                                .font(.system(size: 13, weight: .bold, design: .monospaced)).monospacedDigit()
+                                .foregroundStyle(Palette.outcome(pred.expectedR))
+                        }
+                    }
+                }
+            }
+            if !pred.factors.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        Text("Faktörler:").font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.muted)
+                        ForEach(pred.factors) { factor in
+                            let fColor = factor.rImpact >= 0 ? Palette.mint : Palette.red
+                            HStack(spacing: 4) {
+                                Text(factor.label).fontWeight(.semibold)
+                                Text(Format.r(factor.rImpact)).foregroundStyle(fColor)
+                                Text("n=\(factor.sampleCount)").foregroundStyle(Palette.muted)
+                            }
+                            .font(.system(size: 10, design: .monospaced))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(fColor.opacity(0.08), in: Capsule())
+                            .overlay(Capsule().strokeBorder(fColor.opacity(0.24), lineWidth: 0.8))
+                        }
+                    }
+                }
+            }
+            if let warning = pred.warning {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(Palette.amber)
+                    Text(warning).font(.system(size: 10)).foregroundStyle(Palette.amber)
+                }
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .background(
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 13).fill(Palette.panelGradient)
+                LinearGradient(colors: [scoreColor.opacity(0.07), .clear], startPoint: .leading, endPoint: .trailing)
+                    .clipShape(RoundedRectangle(cornerRadius: 13))
+            }
+        )
+        .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(scoreColor.opacity(0.28), lineWidth: 1))
+    }
+
     // MARK: - Helpers & Components
     private func saveAndClose() {
         draft.record.tags = tags.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
@@ -1073,6 +1175,7 @@ struct TradeEditorView: View {
             .frame(maxWidth: .infinity, minHeight: 34)
             .background(selected ? color.opacity(0.15) : Palette.field, in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? color.opacity(0.6) : Palette.line, lineWidth: selected ? 1.5 : 1))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
     }
@@ -1107,6 +1210,7 @@ struct TradeEditorView: View {
                 .padding(.horizontal, 10).padding(.vertical, 6)
                 .background(selected ? tint.opacity(0.16) : Palette.field, in: RoundedRectangle(cornerRadius: 7))
                 .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(selected ? tint.opacity(0.6) : Palette.line.opacity(0.8), lineWidth: selected ? 1.2 : 1))
+                .contentShape(RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
     }
@@ -1127,6 +1231,7 @@ struct TradeEditorView: View {
                         .frame(maxWidth: .infinity)
                         .background(isSel ? Palette.mint.opacity(0.15) : Palette.field, in: RoundedRectangle(cornerRadius: 7))
                         .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(isSel ? Palette.mint.opacity(0.55) : Palette.line.opacity(0.75)))
+                        .contentShape(RoundedRectangle(cornerRadius: 7))
                 }
                 .buttonStyle(.plain)
             }
@@ -1156,6 +1261,7 @@ struct TradeEditorView: View {
                     .padding(.horizontal, 9).padding(.vertical, 7)
                     .background(isSel ? tint.opacity(0.14) : Palette.field, in: RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(isSel ? tint.opacity(0.55) : Palette.line.opacity(0.75)))
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
             }
@@ -1176,6 +1282,7 @@ struct TradeEditorView: View {
             .padding(.horizontal, 10).padding(.vertical, 8)
             .background(isOn.wrappedValue ? tint.opacity(0.13) : Palette.field, in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(isOn.wrappedValue ? tint.opacity(0.5) : Palette.line.opacity(0.75)))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
     }

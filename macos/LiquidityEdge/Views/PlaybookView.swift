@@ -11,7 +11,6 @@ struct PlaybookView: View {
     @Environment(JournalStore.self) private var store
     var openPlaybook: ((PlaybookDraft) -> Void)? = nil
     @State private var localSheet: PlaybookSheet?
-    @State private var deleting: Setup?
 
     private enum PlaybookSheet: Identifiable {
         case editor(PlaybookDraft)
@@ -102,7 +101,9 @@ struct PlaybookView: View {
                                     do { presentEditor(try PlaybookDraft(setup)) } catch { store.report(error) }
                                 } label: { Label(L10n.text("Edit"), systemImage: "square.and.pencil") }
                                     .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
-                                Button { deleting = setup } label: { Image(systemName: "trash").frame(width: 14, height: 16) }
+                                Button(role: .destructive) {
+                                    _ = Self.performDeleteSetup(setup, in: store)
+                                } label: { Image(systemName: "trash").frame(width: 14, height: 16) }
                                     .buttonStyle(EdgeButtonStyle(prominent: false, compact: true)).help(L10n.text("Delete setup")).accessibilityLabel(L10n.text("Delete setup"))
                             }
                         }
@@ -156,9 +157,6 @@ struct PlaybookView: View {
             case .shot(let shot): ScreenshotViewer(initial: shot) { _ in }
             }
         }
-        .confirmationDialog(L10n.text("Delete this setup?"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
-            Button(L10n.text("Delete setup"), role: .destructive) { if let setup = deleting { do { try store.deleteSetup(setup) } catch { store.report(error) } }; deleting = nil }
-        } message: { Text(L10n.text("Linked trades remain in your journal and become Unassigned. The playbook and its ideal images are deleted.")) }
     }
     private func stat(_ label: String, _ value: String, color: Color = Palette.ink) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -171,6 +169,19 @@ struct PlaybookView: View {
             Text(L10n.text(label)).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.muted).frame(width: 100, alignment: .leading)
             Text(verbatim: text.isEmpty ? L10n.text("Not recorded") : text).font(.system(size: 12)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    @MainActor @discardableResult
+    static func performDeleteSetup(_ setup: Setup, in store: JournalStore) -> Bool {
+        if ConfirmDialog.confirm(
+            title: "Delete this setup?",
+            message: "Linked trades remain in your journal and become Unassigned. The playbook and its ideal images are deleted.",
+            confirmTitle: "Delete setup",
+            destructive: true
+        ) {
+            do { try store.deleteSetup(setup); return true } catch { store.report(error) }
+        }
+        return false
     }
 }
 struct PlaybookEditor: View {
@@ -187,7 +198,11 @@ struct PlaybookEditor: View {
         var id: String { rawValue }
     }
 
-    init(initial: PlaybookDraft) { _draft = State(initialValue: initial) }
+    init(initial: PlaybookDraft, initialTab: Int = 0) {
+        _draft = State(initialValue: initial)
+        let tabs = PlaybookTab.allCases
+        _activeTab = State(initialValue: tabs.indices.contains(initialTab) ? tabs[initialTab] : .identity)
+    }
     private var sheetSize: CGSize {
         let screen = (NSApp.keyWindow?.screen ?? NSScreen.main)?.visibleFrame.size ?? CGSize(width: 1200, height: 900)
         return CGSize(width: min(820, max(640, screen.width - 100)), height: min(740, max(480, screen.height - 90)))
@@ -222,6 +237,7 @@ struct PlaybookEditor: View {
                             .frame(maxWidth: .infinity)
                             .background(isSelected ? Palette.raised : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(isSelected ? Palette.mint.opacity(0.35) : Color.clear, lineWidth: 1))
+                            .contentShape(RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
                 }
@@ -283,9 +299,18 @@ struct PlaybookEditor: View {
             .onChange(of: draft.name) { _, _ in if error != nil { error = nil } }
     }
     private func save() {
+        if let err = Self.performSaveDraft(draft, into: store) {
+            self.error = err
+        } else {
+            dismiss()
+        }
+    }
+
+    @MainActor
+    static func performSaveDraft(_ draft: PlaybookDraft, into store: JournalStore) -> String? {
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { error = "Give this setup a name."; return }
-        guard !store.setups.contains(where: { $0.id != draft.id && $0.name.caseInsensitiveCompare(name) == .orderedSame }) else { error = "A setup with this name already exists."; return }
+        guard !name.isEmpty else { return "Give this setup a name." }
+        guard !store.setups.contains(where: { $0.id != draft.id && $0.name.caseInsensitiveCompare(name) == .orderedSame }) else { return "A setup with this name already exists." }
         do {
             try store.commit {
                 let setup: Setup
@@ -317,7 +342,7 @@ struct PlaybookEditor: View {
                     try store.upsert(changed)
                 }
             }
-            dismiss()
-        } catch { self.error = error.localizedDescription }
+            return nil
+        } catch { return error.localizedDescription }
     }
 }

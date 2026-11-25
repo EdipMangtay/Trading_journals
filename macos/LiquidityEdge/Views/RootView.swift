@@ -53,8 +53,9 @@ struct RootView: View {
     @State private var globalQuery = ""
     @FocusState private var searchFocused: Bool
     @Namespace private var sidebarNamespace
+    var initialPage: JournalPage? = nil
     private var page: JournalPage {
-        get { JournalPage(rawValue: selectedPage) ?? .dashboard }
+        get { initialPage ?? (JournalPage(rawValue: selectedPage) ?? .dashboard) }
         nonmutating set { selectedPage = newValue.rawValue }
     }
     private var animation: Animation? { store.preferences.animations && !reduceMotion ? .spring(response: 0.28, dampingFraction: 0.86) : nil }
@@ -284,6 +285,7 @@ struct RootView: View {
             .padding(.horizontal, 12).padding(.vertical, 6.5)
             .background(Palette.field.opacity(0.88), in: Capsule())
             .overlay(Capsule().strokeBorder(Palette.line.opacity(0.9), lineWidth: 1))
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .help("Hesaplar ve Risk özetine git")

@@ -9,12 +9,6 @@ struct SettingsView: View {
     @State private var customInstrument = ""
     @State private var customRule = ""
     @State private var customSession = ""
-    @State private var importing = false
-    @State private var csvImport = false
-    @State private var pendingBackup: JournalBackup?
-    @State private var pendingCSV: String?
-    @State private var previewCount = 0
-    @State private var confirmingImport = false
     @State private var message: String?
     @State private var loaded = false
     var body: some View {
@@ -68,8 +62,8 @@ struct SettingsView: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), alignment: .leading)], alignment: .leading, spacing: 10) {
                     Button { export(csv: false) } label: { Label("JSON yedeği dışa aktar", systemImage: "square.and.arrow.up") }.buttonStyle(EdgeButtonStyle(prominent: false))
                     Button { export(csv: true) } label: { Label(L10n.text("Export CSV"), systemImage: "tablecells") }.buttonStyle(EdgeButtonStyle(prominent: false))
-                    Button { csvImport = false; importing = true } label: { Label(L10n.text("Restore backup…"), systemImage: "arrow.counterclockwise") }.buttonStyle(EdgeButtonStyle(prominent: false))
-                    Button { csvImport = true; importing = true } label: { Label(L10n.text("Import CSV…"), systemImage: "square.and.arrow.down") }.buttonStyle(EdgeButtonStyle(prominent: false))
+                    Button { openImportPanel(csv: false) } label: { Label(L10n.text("Restore backup…"), systemImage: "arrow.counterclockwise") }.buttonStyle(EdgeButtonStyle(prominent: false))
+                    Button { openImportPanel(csv: true) } label: { Label(L10n.text("Import CSV…"), systemImage: "square.and.arrow.down") }.buttonStyle(EdgeButtonStyle(prominent: false))
                 }
                 Text(L10n.text("Restore merges by trade ID and replaces matching records. Other trades remain. Review the import count before applying. CSV preserves all trade fields in record_json; screenshots and playbooks require JSON backup.")).font(.caption).foregroundStyle(Palette.muted)
                 if store.isDemo { Badge(text: "DEMO EXPORT CONTAINS SAMPLE DATA", color: Palette.amber) } else { Button(L10n.text("Explore isolated demo"), action: openDemo).buttonStyle(EdgeButtonStyle(prominent: false)) }
@@ -102,25 +96,42 @@ struct SettingsView: View {
             }
         }.pagePadding() }
         .onAppear { if !loaded { preferences = store.preferences; loaded = true } }
-        .fileImporter(isPresented: $importing, allowedContentTypes: csvImport ? [.commaSeparatedText, .plainText] : [.json], allowsMultipleSelection: false) { result in
-            do {
-                guard let url = try result.get().first else { return }
-                let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
-                let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                guard size <= 512_000_000 else { throw JournalError(message: "Import is limited to 512 MB.") }
-                let data = try Data(contentsOf: url)
-                if csvImport { guard let text = String(data: data, encoding: .utf8) else { throw JournalError(message: "CSV must use UTF-8 encoding.") }; let records = try CSVCodec.decode(text); for record in records { if let error = record.validationError { throw JournalError(message: error) } }; pendingCSV = text; pendingBackup = nil; previewCount = records.count }
-                else { let backup = try BackupService.decode(data); pendingBackup = backup; pendingCSV = nil; previewCount = backup.trades.count }
-                confirmingImport = true
-            } catch { store.report(error) }
-        }
-        .confirmationDialog(L10n.text("Import \(previewCount) trades into \(store.isDemo ? "the demo workspace" : "your journal")?"), isPresented: $confirmingImport) {
-            Button(L10n.text("Import and merge")) {
-                do { if let backup = pendingBackup { try BackupService.restore(backup, into: store); preferences = store.preferences } else if let csv = pendingCSV { _ = try BackupService.importCSV(csv, into: store) }; message = "Imported \(previewCount) trades successfully." } catch { store.report(error) }
-                pendingBackup = nil; pendingCSV = nil
+    }
+    private func openImportPanel(csv: Bool) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = csv ? [.commaSeparatedText, .plainText] : [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard size <= 512_000_000 else { throw JournalError(message: "Import is limited to 512 MB.") }
+            let data = try Data(contentsOf: url)
+            if csv {
+                guard let text = String(data: data, encoding: .utf8) else { throw JournalError(message: "CSV must use UTF-8 encoding.") }
+                let records = try CSVCodec.decode(text)
+                for record in records { if let error = record.validationError { throw JournalError(message: error) } }
+                if ConfirmDialog.confirm(
+                    title: "Import \(records.count) trades into \(store.isDemo ? "the demo workspace" : "your journal")?",
+                    message: "Matching IDs will be updated. Other trades remain. Keep a current backup before updating existing records.",
+                    confirmTitle: "Import and merge"
+                ) {
+                    _ = try BackupService.importCSV(text, into: store)
+                    message = "Imported \(records.count) trades successfully."
+                }
+            } else {
+                let backup = try BackupService.decode(data)
+                if ConfirmDialog.confirm(
+                    title: "Import \(backup.trades.count) trades into \(store.isDemo ? "the demo workspace" : "your journal")?",
+                    message: "Matching IDs will be updated. Other trades remain. JSON restore also merges playbooks and reviews and applies saved preferences. Keep a current backup before updating existing records.",
+                    confirmTitle: "Import and merge"
+                ) {
+                    try BackupService.restore(backup, into: store)
+                    preferences = store.preferences
+                    message = "Imported \(backup.trades.count) trades successfully."
+                }
             }
-            Button(L10n.text("Cancel"), role: .cancel) { pendingBackup = nil; pendingCSV = nil }
-        } message: { Text(L10n.text("Matching IDs will be updated. Other trades remain. JSON restore also merges playbooks and reviews and applies saved preferences. Keep a current backup before updating existing records.")) }
+        } catch { store.report(error) }
     }
     private var appearancePanel: some View {
         Panel(title: "ACCOUNT & APPEARANCE", subtitle: "Hesap varsayılanları ve çalışma ortamı") {

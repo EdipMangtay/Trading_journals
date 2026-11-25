@@ -48,6 +48,7 @@ private final class ParallelBuffer<T>: @unchecked Sendable {
     private(set) var scopedRisk = RiskSnapshot(balance: 50000, realized: 0, today: 0, days: 0, todayCount: 0, floor: nil, remaining: nil, dailyRemaining: nil, consistency: nil, unverified: false, historicalBreach: false, oversizedTrades: 0, dailyCountBreaches: 0)
     private(set) var scopedUnderwater = WorkstationAnalytics.Underwater()
     private(set) var scopedRStability = 0.0
+    private(set) var scopedMLInsights = EdgeMLEngine.MLInsightsSnapshot()
     @ObservationIgnored private var accountsByID: [UUID: TradingAccount] = [:]
     var accountCurrency: String { selectedAccount.currency }
     func accountID(for tradeID: UUID) -> UUID { workspace.assignments[tradeID] ?? TradingAccount.legacyID }
@@ -81,6 +82,7 @@ private final class ParallelBuffer<T>: @unchecked Sendable {
         let riskBox = ParallelBuffer(RiskSnapshot(balance: active.startingBalance, realized: 0, today: 0, days: 0, todayCount: 0, floor: nil, remaining: nil, dailyRemaining: nil, consistency: nil, unverified: false, historicalBreach: false, oversizedTrades: 0, dailyCountBreaches: 0))
         let underwaterBox = ParallelBuffer(WorkstationAnalytics.Underwater())
         let rStabBox = ParallelBuffer(0.0)
+        let mlBox = ParallelBuffer(EdgeMLEngine.MLInsightsSnapshot())
         let todayBox = ParallelBuffer(0.0)
         let countsBox = ParallelBuffer([Classification: Int]())
 
@@ -106,6 +108,8 @@ private final class ParallelBuffer<T>: @unchecked Sendable {
             case 7:
                 riskBox.value = WorkstationAnalytics.risk(ordered, account: active, calendar: cal, now: now)
                 underwaterBox.value = WorkstationAnalytics.underwater(ordered)
+            case 8:
+                mlBox.value = EdgeMLEngine.analyze(ordered, calendar: cal)
             default:
                 var localToday = 0.0
                 var localCounts: [Classification: Int] = [:]
@@ -119,9 +123,9 @@ private final class ParallelBuffer<T>: @unchecked Sendable {
         }
 
         if ordered.count >= 48 && HardwareProfile.coreCount >= 4 {
-            DispatchQueue.concurrentPerform(iterations: 9, execute: runTask)
+            DispatchQueue.concurrentPerform(iterations: 10, execute: runTask)
         } else {
-            for i in 0..<9 { runTask(i) }
+            for i in 0..<10 { runTask(i) }
         }
 
         scopedPerformance = perfBox.value
@@ -138,6 +142,7 @@ private final class ParallelBuffer<T>: @unchecked Sendable {
         scopedRisk = riskBox.value
         scopedUnderwater = underwaterBox.value
         scopedRStability = rStabBox.value
+        scopedMLInsights = mlBox.value
 
         // Asynchronously warm search index in the background on Apple Silicon efficiency/performance cores
         let snapshot = ordered

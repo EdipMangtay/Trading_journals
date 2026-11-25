@@ -11,60 +11,98 @@ struct TradeRows: View {
                 Text(L10n.text("PROCESS")).frame(width: 150)
                 Text(L10n.text("NET PNL")).frame(width: 110, alignment: .trailing)
                 Text(L10n.text("R")).frame(width: 70, alignment: .trailing)
-                Color.clear.frame(width: 10, height: 1)
+                Color.clear.frame(width: 44, height: 1)
             }.font(.system(size: 9, weight: .semibold)).tracking(0.8).foregroundStyle(Palette.muted).padding(.horizontal, 12).padding(.bottom, 14)
             ForEach(Array(trades.enumerated()), id: \.element.id) { index, trade in
-                Button { openTrade(trade) } label: {
-                    let isLong = trade.direction == "Long"
-                    let dirColor = isLong ? Palette.mint : Palette.red
-                    HStack(spacing: 12) {
-                        Image(systemName: isLong ? "arrow.up.right" : "arrow.down.right")
-                            .font(.system(size: 14, weight: .semibold)).foregroundStyle(dirColor)
-                            .frame(width: 36, height: 38)
-                            .background(dirColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
-                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(dirColor.opacity(0.22), lineWidth: 1))
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 8) {
-                                Text(verbatim: trade.instrument).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                                Text(verbatim: trade.direction.uppercased())
-                                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                                    .foregroundStyle(dirColor)
-                                    .padding(.horizontal, 5).padding(.vertical, 2)
-                                    .background(dirColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
-                                if !trade.grade.isEmpty {
-                                    let gradeColor: Color = (trade.grade == "A+" || trade.grade == "A") ? Palette.mint : trade.grade == "B" ? Palette.blue : Palette.amber
-                                    Text(verbatim: trade.grade)
-                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                        .foregroundStyle(gradeColor)
+                let isLong = trade.direction == "Long"
+                let dirColor = isLong ? Palette.mint : Palette.red
+                HStack(spacing: 6) {
+                    Button { openTrade(trade) } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: isLong ? "arrow.up.right" : "arrow.down.right")
+                                .font(.system(size: 14, weight: .semibold)).foregroundStyle(dirColor)
+                                .frame(width: 36, height: 38)
+                                .background(dirColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(dirColor.opacity(0.22), lineWidth: 1))
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 8) {
+                                    Text(verbatim: trade.instrument).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                                    Text(verbatim: trade.direction.uppercased())
+                                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                                        .foregroundStyle(dirColor)
                                         .padding(.horizontal, 5).padding(.vertical, 2)
-                                        .background(gradeColor.opacity(0.11), in: RoundedRectangle(cornerRadius: 4))
-                                        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(gradeColor.opacity(0.24), lineWidth: 0.7))
+                                        .background(dirColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+                                    if !trade.grade.isEmpty {
+                                        let gradeColor: Color = (trade.grade == "A+" || trade.grade == "A") ? Palette.mint : trade.grade == "B" ? Palette.blue : Palette.amber
+                                        Text(verbatim: trade.grade)
+                                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                            .foregroundStyle(gradeColor)
+                                            .padding(.horizontal, 5).padding(.vertical, 2)
+                                            .background(gradeColor.opacity(0.11), in: RoundedRectangle(cornerRadius: 4))
+                                            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(gradeColor.opacity(0.24), lineWidth: 0.7))
+                                    }
+                                    if trade.qt.enabled {
+                                        let qtBadge = [trade.qt.profile, trade.qt.dailyQuarter].filter { !$0.isEmpty }.joined(separator: " ")
+                                        Text(verbatim: qtBadge.isEmpty ? "QT" : qtBadge)
+                                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                            .foregroundStyle(Palette.blue)
+                                            .padding(.horizontal, 5).padding(.vertical, 2)
+                                            .background(Palette.blue.opacity(0.11), in: RoundedRectangle(cornerRadius: 4))
+                                    }
+                                    Spacer(minLength: 4)
+                                    Text(Format.date(trade.date, calendar: store.preferences.calendar)).font(.system(size: 10)).foregroundStyle(Palette.muted).lineLimit(1)
                                 }
-                                if trade.qt.enabled {
-                                    let qtBadge = [trade.qt.profile, trade.qt.dailyQuarter].filter { !$0.isEmpty }.joined(separator: " ")
-                                    Text(verbatim: qtBadge.isEmpty ? "QT" : qtBadge)
-                                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                        .foregroundStyle(Palette.blue)
-                                        .padding(.horizontal, 5).padding(.vertical, 2)
-                                        .background(Palette.blue.opacity(0.11), in: RoundedRectangle(cornerRadius: 4))
-                                }
-                                Spacer(minLength: 4)
-                                Text(Format.date(trade.date, calendar: store.preferences.calendar)).font(.system(size: 10)).foregroundStyle(Palette.muted).lineLimit(1)
-                            }
-                            let setupLabel = trade.setupID == nil ? L10n.text(trade.setupName) : trade.setupName
-                            let subtitleText = trade.session.isEmpty ? setupLabel : (setupLabel + " · " + L10n.text(trade.session))
-                            Text(subtitleText)
-                                .font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(1).help(subtitleText)
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                        Badge(text: trade.classification.rawValue, color: Palette.classification(trade.classification)).frame(width: 150)
-                        Text(Format.money(trade.netPnL, currency: store.currency(for: trade.id))).font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundStyle(Palette.outcome(trade.netPnL)).frame(width: 110, alignment: .trailing).lineLimit(1).minimumScaleFactor(0.75)
-                        Text(Format.r(trade.rMultiple)).font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundStyle(Palette.outcome(trade.rMultiple ?? 0)).frame(width: 70, alignment: .trailing).lineLimit(1).minimumScaleFactor(0.75)
-                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .medium)).foregroundStyle(Palette.muted.opacity(0.5)).frame(width: 10)
-                    }.monospacedDigit().padding(.vertical, 13).contentShape(Rectangle())
-                }.buttonStyle(TradeRowButtonStyle()).accessibilityHint("İşlem ayrıntılarını aç").help("İşlemi incele")
+                                let setupLabel = trade.setupID == nil ? L10n.text(trade.setupName) : trade.setupName
+                                let subtitleText = trade.session.isEmpty ? setupLabel : (setupLabel + " · " + L10n.text(trade.session))
+                                Text(subtitleText)
+                                    .font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(1).help(subtitleText)
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                            Badge(text: trade.classification.rawValue, color: Palette.classification(trade.classification)).frame(width: 150)
+                            Text(Format.money(trade.netPnL, currency: store.currency(for: trade.id))).font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundStyle(Palette.outcome(trade.netPnL)).frame(width: 110, alignment: .trailing).lineLimit(1).minimumScaleFactor(0.75)
+                            Text(Format.r(trade.rMultiple)).font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundStyle(Palette.outcome(trade.rMultiple ?? 0)).frame(width: 70, alignment: .trailing).lineLimit(1).minimumScaleFactor(0.75)
+                            Image(systemName: "chevron.right").font(.system(size: 9, weight: .medium)).foregroundStyle(Palette.muted.opacity(0.5)).frame(width: 10)
+                        }.monospacedDigit().padding(.vertical, 13).contentShape(Rectangle())
+                    }
+                    .buttonStyle(TradeRowButtonStyle())
+                    .accessibilityHint("İşlem ayrıntılarını aç")
+                    .help("İşlemi incele")
+
+                    Button(role: .destructive) {
+                        confirmDeleteTrade(trade)
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11, weight: .medium))
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                    .help("İşlemi sil")
+                    .accessibilityLabel("\(trade.instrument) işlemini sil")
+                }
+                .contextMenu {
+                    Button { openTrade(trade) } label: { Label("İşlemi İncele", systemImage: "doc.text.magnifyingglass") }
+                    Divider()
+                    Button(role: .destructive) { confirmDeleteTrade(trade) } label: { Label("İşlemi Sil", systemImage: "trash") }
+                }
                 if index < trades.count - 1 { Rectangle().fill(Palette.muted.opacity(0.075)).frame(height: 1).padding(.leading, 60) }
             }
         }
+    }
+
+    private func confirmDeleteTrade(_ trade: TradeRecord) {
+        _ = Self.performDeleteTrade(trade, in: store)
+    }
+
+    @MainActor @discardableResult
+    static func performDeleteTrade(_ trade: TradeRecord, in store: JournalStore) -> Bool {
+        if ConfirmDialog.confirm(
+            title: "Delete this trade and its screenshots?",
+            message: "\(trade.instrument) (\(Format.money(trade.netPnL, currency: store.currency(for: trade.id)))) kaydı silinecek. Silme öncesi otomatik yerel yedek oluşturulur.",
+            confirmTitle: "Delete trade",
+            destructive: true
+        ) {
+            do { try store.deleteTrade(trade.id); return true } catch { store.report(error) }
+        }
+        return false
     }
 }
 struct FilterBar: View {
@@ -204,6 +242,7 @@ private struct TradeRowButtonStyle: ButtonStyle {
         @Environment(\.edgeAnimationsEnabled) private var animationsEnabled
         @State private var hovering = false
         var body: some View {
+            let _ = { if UIControlProbe.isTracking { UIControlProbe.renderedChipButtons += 1 } }()
             configuration.label
                 .padding(.horizontal, 12)
                 .background(Palette.raised.opacity(configuration.isPressed ? 0.95 : hovering ? 0.62 : 0), in: RoundedRectangle(cornerRadius: 10))
