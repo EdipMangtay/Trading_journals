@@ -74,7 +74,7 @@ struct SettingsView: View {
                 Label(L10n.text(message), systemImage: "checkmark.circle.fill").font(.system(size: 12)).foregroundStyle(Palette.mint).textSelection(.enabled)
                     .padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Palette.mint.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
             }
-            Panel(title: "LIQUIDITY EDGE / v6.0", subtitle: "NATIVE MACOS · METAL & ACCELERATE ENGINE", accent: Palette.mint) {
+            Panel(title: "LIQUIDITY EDGE / v6.3", subtitle: "NATIVE MACOS · METAL, ACCELERATE & ON-DEVICE AI ENGINE", accent: Palette.mint) {
                 HStack(alignment: .center, spacing: 18) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(L10n.text("Professional Trading Performance Journal\nBuilt around discipline, pattern recognition and execution quality.")).font(.callout).foregroundStyle(Palette.muted)

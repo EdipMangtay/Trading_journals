@@ -1,6 +1,13 @@
-# Liquidity Edge v6.0.0 — Native macOS Sürümü
+# Liquidity Edge v6.3.2 — Native macOS Sürümü
 
-Apple Silicon ve Intel işlemcili tüm macOS 14+ bilgisayarlar için yerel **Swift, SwiftUI, SwiftData ve Swift Charts** uygulaması.
+Apple Silicon ve Intel işlemcili tüm macOS 14+ bilgisayarlar için yerel **Swift, SwiftUI, SwiftData, Accelerate, PDFKit ve Swift Charts** uygulaması (%100 cihaz içi, bulutsuz ve sıfır görüntü işleme/OCR).
+
+## v6.3.2 Yenilikleri
+
+- **Ultra Cihaz İçi AI & ML Motoru (`EdgeMLEngine`):** Zaman sönümlü `L2 Logistic Regression` + `L2 Ridge Regression` + `Empirical Bayes` karması, çok çekirdekli paralel kronolojik **Walk-Forward ROC-AUC / Brier Skill** doğrulaması, **CUSUM & EWMA Piyasa Rejimi & Risk Çarpanı (`1.10x` / `1.00x` / `0.75x` / `0.50x`)**, **AI Filtre Karşı-Olgusal Sermaye Simülatörü**, `vDSP` hızlandırmalı kosinüs benzerlikli **`k-NN` İşlem Otopsisi**, **Quarter-Kelly Risk Planlayıcı**, 10 niyetli **AI İşlem Koçu (`⌘K` & ML Keşif)** ve `< 0.1 ms` 64-bit `FNV-1a` imza önbelleği.
+- **Tek Tıkla Kurumsal PDF Performans Karnesi (`PDFReportService` / `PDFKit`):** `ReviewsView` (Günlük/Haftalık/Aylık değerlendirmeler) ve `AnalyticsView` (Analizler/Strateji/İstatistikler) içinden vektörel Equity eğrisi, Disiplin Notu (`S+`–`D`), AI Rejim/Walk-Forward telemetrisi, en güçlü kurulumlar, seans dağılımı ve kural ihlali maliyetiyle 2 sayfalık kurumsal A4 PDF raporu dışa aktarımı.
+- **macOS Üst Menü Çubuğu Canlı Killzone & AI Rejim Asistanı (`MenuBarController` / `KillzoneClockEngine`):** Yerel AppKit `NSStatusBar` + `NSPopover` mimarisiyle uygulama arka plandayken dahi canlı Killzone geri sayımı, 18:00 NY True Day bazlı Çeyreklik Faz (`6S`, `90DK`, `22.5DK` Q1–Q4), aktif AI Rejim & Risk Çarpanı, anlık bugünkü plana hızlı not ekleme ve tek tıkla kısayollar.
+- **Sıfır Boşta CPU Tüketimi & 60/60 Otomatik Test:** `PerformanceCharts` içindeki 120 FPS CPU tüketen sonsuz nabız döngüsü kaldırılarak boşta **`%0,0 CPU`** tüketimine ulaşıldı; 68 ekran/sekme düzen testi, tüm buton/silme akışları, AI/PDFKit/Killzone stres testleri ve canlı açılış testi (`verify-installed.swift`) eksiksiz doğrulandı.
 
 ## Kurulum Dosyaları
 
