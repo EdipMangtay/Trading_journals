@@ -11,6 +11,8 @@ struct SettingsView: View {
     @State private var customSession = ""
     @State private var message: String?
     @State private var loaded = false
+    @AppStorage("journal.menubar.enabled") private var menuBarEnabled = true
+    @AppStorage("journal.menubar.compact") private var menuBarCompact = false
     var body: some View {
         ScrollView { LazyVStack(alignment: .leading, spacing: 24) {
             PageHeader(eyebrow: "Workspace preferences", title: "Make it your journal.", subtitle: "Local storage, clear defaults and data you control.")
@@ -150,6 +152,18 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle(L10n.text("Animations"), isOn: $preferences.animations).toggleStyle(.switch).font(.system(size: 12))
                     Text("Azaltılmış hareket tercihinize uyulur.").font(.system(size: 10)).foregroundStyle(Palette.muted)
+                }
+            }
+            Rectangle().fill(Palette.muted.opacity(0.1)).frame(height: 1)
+            HStack(alignment: .top, spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle("Üst Menü Çubuğu Canlı Killzone & AI Widget’ı", isOn: $menuBarEnabled).toggleStyle(.switch).font(.system(size: 12))
+                    Text("Uygulama arka plandayken bile aktif Killzone/QT geri sayımını, AI Rejim çarpanını ve hızlı not girişini menü çubuğunda gösterir.").font(.system(size: 10)).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 16)
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle("Kompakt Menü Çubuğu Etiketi", isOn: $menuBarCompact).toggleStyle(.switch).font(.system(size: 12)).disabled(!menuBarEnabled)
+                    Text("Üst çubukta yalnızca Q-fazı ve risk çarpanını gösterir.").font(.system(size: 10)).foregroundStyle(Palette.muted)
                 }
             }
             settingsField("Trading time zone") { TextField(L10n.text("Trading time zone"), text: $preferences.timezone) }

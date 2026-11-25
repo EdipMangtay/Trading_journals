@@ -2,6 +2,7 @@ import XCTest
 import SwiftData
 import SwiftUI
 import AppKit
+import PDFKit
 @testable import LiquidityEdge
 
 final class WorkstationTests: XCTestCase {
@@ -1071,5 +1072,207 @@ final class WorkstationTests: XCTestCase {
         XCTAssertFalse(filledReview.repeatNext.isEmpty)
         XCTAssertFalse(filledReview.stop.isEmpty)
         XCTAssertFalse(filledReview.adjustment.isEmpty)
+    }
+
+    // MARK: - Institutional PDFKit Report Tests
+
+    @MainActor func testPDFReportServiceGeneratesValidMultiPageInstitutionalPDF() throws {
+        let store = try JournalStore(demo: true)
+        XCTAssertGreaterThanOrEqual(store.scopedTrades.count, 20)
+
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("pdf-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer {
+            PDFReportService.testSaveHandler = nil
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        var capturedFiles: [(name: String, data: Data)] = []
+        PDFReportService.testSaveHandler = { suggestedName, data in
+            capturedFiles.append((suggestedName, data))
+            let url = tempDir.appendingPathComponent(suggestedName)
+            try? data.write(to: url, options: .atomic)
+            return url
+        }
+
+        // 1. Export from ReviewsView with rich review notes
+        var reviewDraft = ReviewDraft()
+        reviewDraft.period = "Monthly"
+        reviewDraft.date = store.scopedTrades.first?.date ?? Date()
+        reviewDraft.worked = "NY AM Q3 manipülasyon sonrası SSMT teyidi yüksek beklenti üretti."
+        reviewDraft.didNot = "NY Lunch saatlerinde düşük hacimde acele girişler zarar yazdı."
+        reviewDraft.repeatNext = "Sadece True Open sonrası onaylı kurulumlara gir."
+        reviewDraft.stop = "Peş peşe iki kayıptan sonra 15 dakika ekranı kapat."
+        reviewDraft.adjustment = "Risk çarpanını aktif AI CUSUM rejimine göre uygula."
+
+        let start = CFAbsoluteTimeGetCurrent()
+        let reviewPDFURL = ReviewsView.performExportPDF(for: reviewDraft, in: store)
+        let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000.0
+        XCTAssertNotNil(reviewPDFURL)
+        XCTAssertLessThan(elapsedMs, 1500.0, "PDF generation should complete rapidly on-device")
+
+        let reviewData = try XCTUnwrap(capturedFiles.last?.data)
+        XCTAssertTrue(reviewData.starts(with: Data("%PDF-".utf8)), "Output must be a valid PDF binary")
+        let reviewDoc = try XCTUnwrap(PDFDocument(data: reviewData))
+        XCTAssertEqual(reviewDoc.pageCount, 2, "Review report with notes and trades should render 2 crisp A4 pages")
+        let reviewText = (0..<reviewDoc.pageCount).compactMap { reviewDoc.page(at: $0)?.string }.joined(separator: "\n")
+        XCTAssertTrue(reviewText.contains("LIQUIDITY EDGE"))
+        XCTAssertTrue(reviewText.contains("Aylık Performans Karnesi"))
+        XCTAssertTrue(reviewText.contains("DİSİPLİN NOTU"))
+        XCTAssertTrue(reviewText.contains("WALK-FORWARD"))
+        XCTAssertTrue(reviewText.contains("NY AM Q3 manipülasyon"))
+        XCTAssertEqual(reviewDoc.documentAttributes?[PDFDocumentAttribute.authorAttribute] as? String, "LIQUIDITY EDGE")
+
+        // 2. Export from AnalyticsView across all 3 modes (analytics, setups, statistics)
+        for mode in [AnalyticsMode.analytics, .setups, .statistics] {
+            let url = AnalyticsView.performExportPDF(mode: mode, filter: TradeFilter(), trades: store.scopedTrades, in: store)
+            XCTAssertNotNil(url)
+            let data = try XCTUnwrap(capturedFiles.last?.data)
+            let doc = try XCTUnwrap(PDFDocument(data: data))
+            XCTAssertEqual(doc.pageCount, 2)
+            let page1Text = doc.page(at: 0)?.string ?? ""
+            XCTAssertTrue(page1Text.contains("SERMAYE & KÜMÜLATİF PERFORMANS EĞRİSİ"))
+            XCTAssertTrue(page1Text.contains("AKTİF REJİM"))
+        }
+
+        // 3. Empty period fallback renders a clean single-page PDF without crashing
+        let emptyRequest = PDFReportService.ReportRequest(
+            title: "Boş Dönem Raporu",
+            subtitle: "Test",
+            periodLabel: "01.01.2020 – 07.01.2020",
+            accountName: store.selectedAccount.name,
+            currency: "USD",
+            startingBalance: 50_000,
+            trades: [],
+            allAccountTrades: [],
+            calendar: store.preferences.calendar,
+            reviewNotes: nil
+        )
+        let emptyDoc = try PDFReportService.generateDocument(for: emptyRequest)
+        XCTAssertEqual(emptyDoc.pageCount, 1)
+        XCTAssertTrue((emptyDoc.page(at: 0)?.string ?? "").contains("Boş Dönem Raporu"))
+    }
+
+    // MARK: - Killzone & Quarterly Theory Live Clock Tests
+
+    func testKillzoneClockEngineAllQuartersSessionsAndWeekends() throws {
+        var prefs = JournalPreferences()
+        prefs.timezone = "America/New_York"
+        let nyTZ = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        var nyCal = Calendar(identifier: .gregorian)
+        nyCal.timeZone = nyTZ
+
+        func makeNYDate(year: Int, month: Int, day: Int, hour: Int, minute: Int, second: Int = 0) throws -> Date {
+            var comps = DateComponents()
+            comps.year = year; comps.month = month; comps.day = day
+            comps.hour = hour; comps.minute = minute; comps.second = second
+            comps.timeZone = nyTZ
+            return try XCTUnwrap(nyCal.date(from: comps))
+        }
+
+        // Wednesday 2026-06-10 20:30 NY -> Asia Killzone (20:00–00:00), Daily Q1, Micro Q2 (150m into True Day)
+        let asiaDate = try makeNYDate(year: 2026, month: 6, day: 10, hour: 20, minute: 30)
+        let asiaSnap = KillzoneClockEngine.snapshot(at: asiaDate, preferences: prefs)
+        XCTAssertFalse(asiaSnap.isWeekendClosed)
+        XCTAssertTrue(asiaSnap.isInKillzone)
+        XCTAssertEqual(asiaSnap.activeSessionName, "Asia")
+        XCTAssertEqual(asiaSnap.dailyQuarter.code, "Q1")
+        XCTAssertEqual(asiaSnap.microQuarter.code, "Q2")
+        XCTAssertEqual(asiaSnap.activeRemainingSeconds, 3.5 * 3600, accuracy: 1.0)
+
+        // Thursday 2026-06-11 02:30 NY -> London Killzone (02:00–05:00), Daily Q2, Micro Q2
+        let londonDate = try makeNYDate(year: 2026, month: 6, day: 11, hour: 2, minute: 30)
+        let londonSnap = KillzoneClockEngine.snapshot(at: londonDate, preferences: prefs)
+        XCTAssertTrue(londonSnap.isInKillzone)
+        XCTAssertEqual(londonSnap.activeSessionName, "London")
+        XCTAssertEqual(londonSnap.dailyQuarter.code, "Q2")
+        XCTAssertEqual(londonSnap.microQuarter.code, "Q2")
+
+        // Thursday 2026-06-11 10:00 NY -> NY AM Killzone (09:30–11:00), Daily Q3 (06:00–12:00), Micro Q3 (09:00–10:30)
+        let nyAmDate = try makeNYDate(year: 2026, month: 6, day: 11, hour: 10, minute: 0)
+        let nyAmSnap = KillzoneClockEngine.snapshot(at: nyAmDate, preferences: prefs)
+        XCTAssertTrue(nyAmSnap.isInKillzone)
+        XCTAssertEqual(nyAmSnap.activeSessionName, "NY AM")
+        XCTAssertEqual(nyAmSnap.dailyQuarter.code, "Q3")
+        XCTAssertEqual(nyAmSnap.microQuarter.code, "Q3")
+        XCTAssertEqual(nyAmSnap.activeRemainingSeconds, 3600, accuracy: 1.0)
+        XCTAssertTrue(nyAmSnap.trueOpenStatus.contains("TDO Aktif"))
+
+        let fullLabel = nyAmSnap.menuBarLabel(riskMultiplier: 1.10, regimeState: .hotEdge, compact: false)
+        XCTAssertTrue(fullLabel.contains("NY AM"))
+        XCTAssertTrue(fullLabel.contains("Q3"))
+        XCTAssertTrue(fullLabel.contains("1.10x"))
+
+        let compactLabel = nyAmSnap.menuBarLabel(riskMultiplier: 0.75, regimeState: .coldVariance, compact: true)
+        XCTAssertEqual(compactLabel, "Q3·Q3 0.75x")
+
+        // Thursday 2026-06-11 14:15 NY -> NY PM Killzone (13:00–16:00), Daily Q4 (12:00–18:00), Micro Q2 (13:30–15:00)
+        let nyPmDate = try makeNYDate(year: 2026, month: 6, day: 11, hour: 14, minute: 15)
+        let nyPmSnap = KillzoneClockEngine.snapshot(at: nyPmDate, preferences: prefs)
+        XCTAssertTrue(nyPmSnap.isInKillzone)
+        XCTAssertEqual(nyPmSnap.activeSessionName, "NY PM")
+        XCTAssertEqual(nyPmSnap.dailyQuarter.code, "Q4")
+        XCTAssertEqual(nyPmSnap.microQuarter.code, "Q2")
+
+        // Thursday 2026-06-11 06:30 NY -> Dead Zone, next Killzone is NY AM in 3 hours (09:30 NY)
+        let deadZoneDate = try makeNYDate(year: 2026, month: 6, day: 11, hour: 6, minute: 30)
+        let deadSnap = KillzoneClockEngine.snapshot(at: deadZoneDate, preferences: prefs)
+        XCTAssertFalse(deadSnap.isInKillzone)
+        XCTAssertEqual(deadSnap.nextSessionName, "NY AM")
+        XCTAssertEqual(deadSnap.secondsUntilNextSession, 3 * 3600, accuracy: 1.0)
+
+        // Saturday 2026-06-13 14:00 NY -> Weekend market closed
+        let weekendDate = try makeNYDate(year: 2026, month: 6, day: 13, hour: 14, minute: 0)
+        let weekendSnap = KillzoneClockEngine.snapshot(at: weekendDate, preferences: prefs)
+        XCTAssertTrue(weekendSnap.isWeekendClosed)
+        XCTAssertFalse(weekendSnap.isInKillzone)
+        XCTAssertTrue(weekendSnap.menuBarLabel(riskMultiplier: 1.0, regimeState: .stable, compact: false).contains("Hafta Sonu"))
+
+        // Overnight session wrap parser verification (e.g. 22:00–02:00)
+        let overnight = try XCTUnwrap(KillzoneClockEngine.parseWindow(name: "Custom Night", raw: "22:00–02:00"))
+        XCTAssertEqual(overnight.durationMinutes, 240)
+        XCTAssertTrue(overnight.contains(minuteOfDay: 23 * 60 + 30))
+        XCTAssertTrue(overnight.contains(minuteOfDay: 1 * 60 + 15))
+        XCTAssertFalse(overnight.contains(minuteOfDay: 12 * 60))
+    }
+
+    // MARK: - macOS Menu Bar Assistant Rendering & Quick Note Persistence Tests
+
+    @MainActor func testMenuBarAssistantRenderingAndQuickNotePersistence() throws {
+        let store = try JournalStore(demo: true)
+
+        // 1. Render both MenuBarStatusLabel and MenuBarAssistantView via NSHostingView
+        let labelHost = NSHostingView(rootView: MenuBarStatusLabel().environment(store))
+        labelHost.frame = NSRect(x: 0, y: 0, width: 220, height: 24)
+        labelHost.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(labelHost.fittingSize.width, 0)
+
+        let popoverHost = NSHostingView(
+            rootView: MenuBarAssistantView(
+                openMainWindow: {},
+                openNewTrade: {},
+                openDailyPlan: {},
+                openCommandPalette: {}
+            ).environment(store)
+        )
+        popoverHost.frame = NSRect(x: 0, y: 0, width: 372, height: 580)
+        popoverHost.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(popoverHost.fittingSize.height, 200)
+
+        // 2. Verify inline Quick Note saves & appends timestamped entries to today's DailyPlan
+        let now = Date()
+        XCTAssertFalse(MenuBarAssistantView.appendQuickNote("   \n  ", into: store, at: now))
+
+        XCTAssertTrue(MenuBarAssistantView.appendQuickNote("NQ PDH likiditesi alındı, Q3 teyidi bekleniyor.", into: store, at: now))
+        let cal = store.preferences.calendar
+        let plan1 = try XCTUnwrap(store.workspace.plans.first { $0.accountID == store.selectedAccount.id && cal.isDate($0.date, inSameDayAs: now) })
+        XCTAssertTrue(plan1.scenarios.contains("NQ PDH likiditesi alındı"))
+        XCTAssertTrue(plan1.scenarios.hasPrefix("["))
+
+        XCTAssertTrue(MenuBarAssistantView.appendQuickNote("SSMT onaylandı, risk %0.50 sabit.", into: store, at: now))
+        let plan2 = try XCTUnwrap(store.workspace.plans.first { $0.accountID == store.selectedAccount.id && cal.isDate($0.date, inSameDayAs: now) })
+        XCTAssertTrue(plan2.scenarios.contains("NQ PDH likiditesi alındı"))
+        XCTAssertTrue(plan2.scenarios.contains("SSMT onaylandı"))
+        XCTAssertEqual(plan2.scenarios.components(separatedBy: "\n").count, 2)
     }
 }

@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import AppKit
 
 enum AnalyticsMode { case analytics, setups, statistics }
 struct AnalyticsView: View {
@@ -11,6 +12,7 @@ struct AnalyticsView: View {
     @State private var metric = GroupMetric.averageR
     @State private var curveMode = CurveMode.r
     @State private var fallbackPlaybook: PlaybookDraft?
+    @State private var exportedPDFURL: URL?
     var body: some View {
         let unfiltered = filter.isEmpty
         let data = unfiltered ? store.scopedTrades : filter.apply(store.scopedTrades, calendar: store.preferences.calendar)
@@ -21,14 +23,41 @@ struct AnalyticsView: View {
             LazyVStack(alignment: .leading, spacing: 24) {
                 HStack(alignment: .top, spacing: 20) {
                     PageHeader(eyebrow: "Research desk", title: mode == .setups ? "Find the combinations that matter." : mode == .statistics ? "Your performance, precisely." : "Evidence over intuition.", subtitle: "Measure confirmations against your own execution history.")
-                    if mode == .setups {
-                        Spacer(minLength: 8)
+                    Spacer(minLength: 8)
+                    HStack(spacing: 10) {
                         Button {
-                            let draft = PlaybookDraft()
-                            if let openPlaybook { openPlaybook(draft) } else { fallbackPlaybook = draft }
-                        } label: { Label(L10n.text("New setup"), systemImage: "plus") }
-                            .buttonStyle(EdgeButtonStyle())
+                            if let url = Self.performExportPDF(mode: mode, filter: filter, trades: data, in: store) {
+                                exportedPDFURL = url
+                            }
+                        } label: { Label("PDF Raporu", systemImage: "doc.richtext") }
+                            .buttonStyle(EdgeButtonStyle(prominent: false))
+                            .disabled(data.isEmpty)
+                            .help("Filtrelenen verilerle kurumsal PDF performans karnesi dışa aktar")
+                        if mode == .setups {
+                            Button {
+                                let draft = PlaybookDraft()
+                                if let openPlaybook { openPlaybook(draft) } else { fallbackPlaybook = draft }
+                            } label: { Label(L10n.text("New setup"), systemImage: "plus") }
+                                .buttonStyle(EdgeButtonStyle())
+                        }
                     }
+                }
+                if let url = exportedPDFURL {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.mint)
+                        Text("Kurumsal PDF raporu kaydedildi: \(url.lastPathComponent)")
+                            .font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.ink)
+                        Spacer()
+                        Button { NSWorkspace.shared.open(url) } label: { Label("PDF’i Aç", systemImage: "doc.viewfinder") }
+                            .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                        Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Label("Finder", systemImage: "folder") }
+                            .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                        Button { exportedPDFURL = nil } label: { Image(systemName: "xmark").font(.caption) }
+                            .buttonStyle(.plain).foregroundStyle(Palette.muted)
+                    }
+                    .padding(14)
+                    .background(Palette.mint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.mint.opacity(0.28), lineWidth: 0.9))
                 }
                 FilterBar(allTrades: store.scopedTrades, calendar: store.preferences.calendar, filter: $filter)
                 if data.isEmpty { EmptyJournal(title: "No observations yet.", subtitle: "Add trades or adjust filters to begin your analysis.") }
@@ -178,6 +207,62 @@ struct AnalyticsView: View {
             .accessibilityLabel("Aylık işlem planına uyum grafiği")
             ForEach(months) { month in HStack { Text(Format.month(month.date, calendar: store.preferences.calendar)); Spacer(); Text(Format.percent(month.performance.compliance)); Text(Format.r(month.performance.averageR)).frame(width: 90, alignment: .trailing) }.font(.caption) }
             Text(L10n.text(correlation.map { "Monthly compliance ↔ expectancy Pearson r = \(Format.number($0)). Association is not causation; \(months.count) monthly observations." } ?? "Correlation needs at least three months with recorded R and variation in both metrics.")).font(.caption).foregroundStyle(Palette.muted)
+        }
+    }
+
+    @MainActor @discardableResult
+    static func performExportPDF(
+        mode: AnalyticsMode,
+        filter: TradeFilter,
+        trades: [TradeRecord],
+        in store: JournalStore
+    ) -> URL? {
+        let cal = store.preferences.calendar
+        let ordered = AnalyticsEngine.ordered(trades)
+        let title: String
+        let prefix: String
+        switch mode {
+        case .setups:
+            title = "Strateji & Kurulum Analiz Raporu"
+            prefix = "LiquidityEdge-Kurulumlar"
+        case .statistics:
+            title = "İstatistiksel Performans Raporu"
+            prefix = "LiquidityEdge-Istatistikler"
+        case .analytics:
+            title = "Analitik Performans Karnesi"
+            prefix = "LiquidityEdge-Analiz"
+        }
+
+        let periodLabel: String
+        if let from = filter.from, let to = filter.to {
+            periodLabel = "\(Format.date(from, calendar: cal)) – \(Format.date(to, calendar: cal))"
+        } else if let first = ordered.first?.date, let last = ordered.last?.date {
+            periodLabel = "\(Format.date(first, calendar: cal)) – \(Format.date(last, calendar: cal)) (\(ordered.count) işlem)"
+        } else {
+            periodLabel = "Tüm İşlemler"
+        }
+
+        let request = PDFReportService.ReportRequest(
+            title: title,
+            subtitle: filter.isEmpty ? "Hesap Geneli Kurumsal Analiz" : "Filtrelenmiş Analiz Görünümü",
+            periodLabel: periodLabel,
+            accountName: store.selectedAccount.name,
+            currency: store.accountCurrency,
+            startingBalance: store.selectedAccount.startingBalance,
+            trades: ordered,
+            allAccountTrades: store.scopedTrades,
+            calendar: cal,
+            reviewNotes: nil
+        )
+        let fileName = PDFReportService.sanitizedFileName(prefix: prefix, period: filter.isEmpty ? "Genel" : "Filtreli")
+        switch PDFReportService.exportWithSavePanel(request: request, suggestedFileName: fileName) {
+        case .success(let url):
+            return url
+        case .failure(let error):
+            store.report(error)
+            return nil
+        case nil:
+            return nil
         }
     }
 }

@@ -9,14 +9,40 @@ struct ReviewDraft: Identifiable {
 struct ReviewsView: View {
     @Environment(JournalStore.self) private var store
     @State private var draft: ReviewDraft?
+    @State private var exportedPDFURL: URL?
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
                 HStack(alignment: .top, spacing: 24) {
                     PageHeader(eyebrow: "Deliberate practice", title: "Turn experience into improvement.", subtitle: "Daily, weekly and monthly reviews anchored in your trade data.")
                     Spacer(minLength: 0)
-                    Button { draft = ReviewDraft() } label: { Label(L10n.text("New review"), systemImage: "plus") }
-                        .buttonStyle(EdgeButtonStyle()).fixedSize()
+                    HStack(spacing: 10) {
+                        Button {
+                            if let url = Self.performExportCurrentPeriodPDF(period: "Weekly", date: Date(), in: store) {
+                                exportedPDFURL = url
+                            }
+                        } label: { Label("Haftalık PDF Karne", systemImage: "doc.richtext") }
+                            .buttonStyle(EdgeButtonStyle(prominent: false)).fixedSize()
+                        Button { draft = ReviewDraft() } label: { Label(L10n.text("New review"), systemImage: "plus") }
+                            .buttonStyle(EdgeButtonStyle()).fixedSize()
+                    }
+                }
+                if let url = exportedPDFURL {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.mint)
+                        Text("Kurumsal PDF karne kaydedildi: \(url.lastPathComponent)")
+                            .font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.ink)
+                        Spacer()
+                        Button { NSWorkspace.shared.open(url) } label: { Label("PDF’i Aç", systemImage: "doc.viewfinder") }
+                            .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                        Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Label("Finder", systemImage: "folder") }
+                            .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                        Button { exportedPDFURL = nil } label: { Image(systemName: "xmark").font(.caption) }
+                            .buttonStyle(.plain).foregroundStyle(Palette.muted)
+                    }
+                    .padding(14)
+                    .background(Palette.mint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.mint.opacity(0.28), lineWidth: 0.9))
                 }
                 if store.reviews.isEmpty {
                     Panel { EmptyJournal(title: "Close the feedback loop.", subtitle: "Summarize what worked, identify the recurring mistake, and choose one adjustment.", actionTitle: "Start a review", action: { draft = ReviewDraft() }) }
@@ -34,6 +60,13 @@ struct ReviewsView: View {
                             }
                             Spacer(minLength: 0)
                             HStack(spacing: 8) {
+                                Button {
+                                    if let url = Self.performExportPDF(for: ReviewDraft(review), in: store) {
+                                        exportedPDFURL = url
+                                    }
+                                } label: { Label("PDF Karne", systemImage: "doc.richtext") }
+                                    .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                                    .help("Bu dönemin kurumsal PDF performans karnesini dışa aktar")
                                 Button { draft = ReviewDraft(review) } label: { Label(L10n.text("Open review"), systemImage: "arrow.up.right") }
                                     .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
                                 Button(role: .destructive) {
@@ -55,6 +88,54 @@ struct ReviewsView: View {
     }
 
     @MainActor @discardableResult
+    static func performExportPDF(for reviewDraft: ReviewDraft, in store: JournalStore) -> URL? {
+        let cal = store.preferences.calendar
+        let comp: Calendar.Component = reviewDraft.period == "Daily" ? .day : reviewDraft.period == "Monthly" ? .month : .weekOfYear
+        let interval = cal.dateInterval(of: comp, for: reviewDraft.date) ?? DateInterval(start: reviewDraft.date, duration: 86400)
+        let periodTrades = store.scopedTrades.filter { $0.date >= interval.start && $0.date < interval.end }
+        let periodLabel = "\(Format.date(interval.start, calendar: cal)) – \(Format.date(interval.end.addingTimeInterval(-1), calendar: cal))"
+        let turkishPeriod = reviewDraft.period == "Daily" ? "Günlük" : reviewDraft.period == "Monthly" ? "Aylık" : "Haftalık"
+
+        let request = PDFReportService.ReportRequest(
+            title: "\(turkishPeriod) Performans Karnesi",
+            subtitle: "Kurumsal Süreç, Equity ve Cihaz İçi AI Değerlendirmesi",
+            periodLabel: periodLabel,
+            accountName: store.selectedAccount.name,
+            currency: store.accountCurrency,
+            startingBalance: store.selectedAccount.startingBalance,
+            trades: periodTrades,
+            allAccountTrades: store.scopedTrades,
+            calendar: cal,
+            reviewNotes: PDFReportService.ReviewNotesSection(
+                period: turkishPeriod,
+                worked: reviewDraft.worked,
+                didNot: reviewDraft.didNot,
+                repeatNext: reviewDraft.repeatNext,
+                stop: reviewDraft.stop,
+                adjustment: reviewDraft.adjustment
+            )
+        )
+        let fileName = PDFReportService.sanitizedFileName(prefix: "LiquidityEdge-Karne", period: reviewDraft.period, date: reviewDraft.date)
+        switch PDFReportService.exportWithSavePanel(request: request, suggestedFileName: fileName) {
+        case .success(let url):
+            return url
+        case .failure(let error):
+            store.report(error)
+            return nil
+        case nil:
+            return nil
+        }
+    }
+
+    @MainActor @discardableResult
+    static func performExportCurrentPeriodPDF(period: String, date: Date, in store: JournalStore) -> URL? {
+        var tempDraft = ReviewDraft()
+        tempDraft.period = period
+        tempDraft.date = date
+        return performExportPDF(for: tempDraft, in: store)
+    }
+
+    @MainActor @discardableResult
     static func performDeleteReview(_ review: Review, in store: JournalStore) -> Bool {
         if ConfirmDialog.confirm(
             title: "Delete this review?",
@@ -72,6 +153,7 @@ struct ReviewEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: ReviewDraft
     @State private var error: String?
+    @State private var exportedURL: URL?
     init(initial: ReviewDraft) { _draft = State(initialValue: initial) }
     private var interval: DateInterval { store.preferences.calendar.dateInterval(of: draft.period == "Daily" ? .day : draft.period == "Monthly" ? .month : .weekOfYear, for: draft.date)! }
     private var sheetSize: CGSize {
@@ -83,7 +165,7 @@ struct ReviewEditor: View {
         let setups = AnalyticsEngine.groups(trades, by: .setup, calendar: store.preferences.calendar).sorted { ($0.performance.averageR ?? -.infinity) > ($1.performance.averageR ?? -.infinity) }
         let best = trades.max { $0.netPnL < $1.netPnL }, worst = trades.min { $0.netPnL < $1.netPnL }
         VStack(spacing: 0) {
-            HStack(spacing: 15) {
+            HStack(spacing: 12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 11).fill(Palette.blue.opacity(0.09)).frame(width: 42, height: 42)
                     Image(systemName: "checkmark.rectangle").font(.system(size: 20, weight: .medium)).foregroundStyle(Palette.blue)
@@ -93,6 +175,15 @@ struct ReviewEditor: View {
                     Text("Sonuçları değerlendir, bir sonraki adımı belirle.").font(.system(size: 11)).foregroundStyle(Palette.muted)
                 }
                 Spacer(minLength: 8)
+                Button {
+                    if let url = ReviewsView.performExportPDF(for: draft, in: store) {
+                        exportedURL = url
+                    }
+                } label: {
+                    Label("PDF Karne", systemImage: "doc.richtext")
+                }
+                .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                .help("Seçili dönemin kurumsal PDF karnesini dışa aktar")
                 Button {
                     draft = Self.performGenerateAIDraft(draft, in: store)
                 } label: {
@@ -104,6 +195,19 @@ struct ReviewEditor: View {
                     .buttonStyle(EdgeButtonStyle(compact: true)).keyboardShortcut("s", modifiers: .command)
             }.padding(.horizontal, 26).padding(.vertical, 20).background(Palette.panel)
             Rectangle().fill(Palette.muted.opacity(0.12)).frame(height: 1)
+            if let exportedURL {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.mint)
+                    Text("PDF dışa aktarıldı: \(exportedURL.lastPathComponent)").font(.system(size: 11.5, weight: .medium))
+                    Spacer()
+                    Button { NSWorkspace.shared.open(exportedURL) } label: { Label("PDF’i Aç", systemImage: "doc.viewfinder") }
+                        .buttonStyle(EdgeButtonStyle(prominent: false, compact: true))
+                    Button { self.exportedURL = nil } label: { Image(systemName: "xmark").font(.caption) }
+                        .buttonStyle(.plain).foregroundStyle(Palette.muted)
+                }
+                .padding(.horizontal, 26).padding(.vertical, 10)
+                .background(Palette.mint.opacity(0.08))
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Panel {

@@ -92,6 +92,12 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .newTrade)) { _ in if activeSheet == nil { activeSheet = .tradeEditor(EditorRoute()) } }
         .onReceive(NotificationCenter.default.publisher(for: .commandPalette)) { _ in if activeSheet == nil { showSearch() } }
         .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in if activeSheet == nil { page = .settings } }
+        .onReceive(NotificationCenter.default.publisher(for: .openPage)) { note in
+            if let target = note.object as? JournalPage {
+                activeSheet = nil
+                page = target
+            }
+        }
         .alert(L10n.text("Journal error"), isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) { Button(L10n.text("OK")) { store.errorMessage = nil } } message: { Text(L10n.text(store.errorMessage ?? "")) }
         .environment(\.timeZone, TimeZone(identifier: store.preferences.timezone) ?? .current)
         .environment(\.edgeAnimationsEnabled, store.preferences.animations)

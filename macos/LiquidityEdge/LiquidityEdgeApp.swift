@@ -24,12 +24,26 @@ import AppKit
     var openMainWindow: (() -> Void)?
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if let window = sender.windows.first(where: { $0.identifier?.rawValue == "main" || $0.title == "LIQUIDITY EDGE" }) {
+        showMainWindow()
+        return false
+    }
+
+    func showMainWindow(then action: (() -> Void)? = nil) {
+        let existing = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" || $0.title == "LIQUIDITY EDGE" })
+        if let window = existing {
             if window.isMiniaturized { window.deminiaturize(nil) }
             window.makeKeyAndOrderFront(nil)
-        } else { openMainWindow?() }
-        sender.activate(ignoringOtherApps: true)
-        return false
+            NSApp.activate(ignoringOtherApps: true)
+            if let action {
+                DispatchQueue.main.async { action() }
+            }
+        } else {
+            openMainWindow?()
+            NSApp.activate(ignoringOtherApps: true)
+            if let action {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { action() }
+            }
+        }
     }
 }
 private struct MainWindowReopenBridge: View {
@@ -45,6 +59,7 @@ private struct MainWindowReopenBridge: View {
 @main struct LiquidityEdgeApp: App {
     @NSApplicationDelegateAdaptor(JournalApplicationDelegate.self) private var applicationDelegate
     @State private var runtime = AppRuntime()
+    @AppStorage("journal.menubar.enabled") private var menuBarEnabled = true
     var body: some Scene {
         Window("LIQUIDITY EDGE", id: "main") {
             Group {
@@ -72,5 +87,48 @@ private struct MainWindowReopenBridge: View {
             CommandGroup(replacing: .newItem) { Button(L10n.text("New Trade")) { NotificationCenter.default.post(name: .newTrade, object: nil) }.keyboardShortcut("n", modifiers: .command) }
             CommandGroup(after: .newItem) { Button(L10n.text("Search & Commands")) { NotificationCenter.default.post(name: .commandPalette, object: nil) }.keyboardShortcut("k", modifiers: .command) }
         }
+
+        MenuBarExtra(isInserted: $menuBarEnabled) {
+            Group {
+                if let store = runtime.store {
+                    MenuBarAssistantView(
+                        openMainWindow: { applicationDelegate.showMainWindow() },
+                        openNewTrade: {
+                            applicationDelegate.showMainWindow {
+                                NotificationCenter.default.post(name: .newTrade, object: nil)
+                            }
+                        },
+                        openDailyPlan: {
+                            applicationDelegate.showMainWindow {
+                                NotificationCenter.default.post(name: .openPage, object: JournalPage.planning)
+                            }
+                        },
+                        openCommandPalette: {
+                            applicationDelegate.showMainWindow {
+                                NotificationCenter.default.post(name: .commandPalette, object: nil)
+                            }
+                        }
+                    )
+                    .environment(store)
+                    .environment(\.locale, L10n.locale)
+                    .preferredColorScheme(store.preferences.theme == "System" ? nil : store.preferences.theme == "Light" ? .light : .dark)
+                } else {
+                    VStack(spacing: 10) {
+                        Text("LIQUIDITY EDGE").font(.headline)
+                        Button("Uygulamayı Aç") { applicationDelegate.showMainWindow() }
+                            .buttonStyle(EdgeButtonStyle(compact: true))
+                    }
+                    .padding(16)
+                    .frame(width: 240)
+                }
+            }
+        } label: {
+            if let store = runtime.store {
+                MenuBarStatusLabel().environment(store)
+            } else {
+                Label("Liquidity Edge", systemImage: "waveform.path.ecg")
+            }
+        }
+        .menuBarExtraStyle(.window)
     }
 }
