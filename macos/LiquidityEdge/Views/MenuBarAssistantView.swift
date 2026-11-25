@@ -1,8 +1,237 @@
 import SwiftUI
 import AppKit
 
-/// Compact live status label rendered directly in the macOS top Menu Bar next to the system clock.
-/// Refreshes on a lightweight 15-second cadence so background CPU impact remains negligible.
+/// Native AppKit macOS Menu Bar controller using NSStatusBar + NSPopover.
+/// Immune to SwiftUI MenuBarExtraHost infinite layout loops on macOS 15–27, starts in < 1 ms,
+/// uses ~0% background CPU (tears down hosting view on popover close), and respects Settings toggles live.
+@MainActor final class MenuBarController: NSObject, NSPopoverDelegate {
+    static let enabledKey = "journal.menubar.enabled"
+    static let compactKey = "journal.menubar.compact"
+
+    private var statusItem: NSStatusItem?
+    private let popover = NSPopover()
+    private var refreshTimer: Timer?
+    private var defaultsObserver: NSObjectProtocol?
+
+    private var storeProvider: (@MainActor () -> JournalStore?)?
+    private var openMainWindowAction: (@MainActor () -> Void)?
+    private var openNewTradeAction: (@MainActor () -> Void)?
+    private var openDailyPlanAction: (@MainActor () -> Void)?
+    private var openCommandPaletteAction: (@MainActor () -> Void)?
+
+    private var lastTitle: String?
+    private var lastSymbolName: String?
+
+    var isEnabled: Bool {
+        if UserDefaults.standard.object(forKey: Self.enabledKey) == nil { return true }
+        return UserDefaults.standard.bool(forKey: Self.enabledKey)
+    }
+
+    var isCompact: Bool {
+        UserDefaults.standard.bool(forKey: Self.compactKey)
+    }
+
+    override init() {
+        super.init()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.delegate = self
+    }
+
+    func attach(
+        storeProvider: @escaping @MainActor () -> JournalStore?,
+        openMainWindow: @escaping @MainActor () -> Void,
+        openNewTrade: @escaping @MainActor () -> Void,
+        openDailyPlan: @escaping @MainActor () -> Void,
+        openCommandPalette: @escaping @MainActor () -> Void
+    ) {
+        self.storeProvider = storeProvider
+        self.openMainWindowAction = openMainWindow
+        self.openNewTradeAction = openNewTrade
+        self.openDailyPlanAction = openDailyPlan
+        self.openCommandPaletteAction = openCommandPalette
+
+        if defaultsObserver == nil {
+            defaultsObserver = NotificationCenter.default.addObserver(
+                forName: UserDefaults.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.syncVisibilityAndStatus()
+                }
+            }
+        }
+        syncVisibilityAndStatus()
+    }
+
+    func syncVisibilityAndStatus() {
+        if isEnabled {
+            ensureStatusItemInstalled()
+            updateStatusButton(at: Date())
+            startTimerIfNeeded()
+        } else {
+            tearDownStatusItem()
+        }
+    }
+
+    func formattedStatus(at date: Date = Date()) -> (title: String, symbolName: String) {
+        guard let store = storeProvider?() else {
+            return ("Liquidity Edge", "waveform.path.ecg")
+        }
+        let clock = KillzoneClockEngine.snapshot(at: date, preferences: store.preferences)
+        let regime = store.scopedMLInsights.regime
+        let title = clock.menuBarLabel(
+            riskMultiplier: regime.riskMultiplier,
+            regimeState: regime.state,
+            compact: isCompact
+        )
+        let symbol: String
+        if clock.isWeekendClosed {
+            symbol = "moon.stars"
+        } else {
+            switch regime.state {
+            case .regimeDrift: symbol = "exclamationmark.triangle"
+            case .hotEdge: symbol = clock.isInKillzone ? "bolt.circle.fill" : "waveform.path.ecg"
+            case .coldVariance: symbol = "shield.lefthalf.filled"
+            case .stable: symbol = clock.isInKillzone ? "waveform.path.ecg" : "clock"
+            }
+        }
+        return (title, symbol)
+    }
+
+    private func ensureStatusItemInstalled() {
+        guard statusItem == nil else { return }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = item.button {
+            button.imagePosition = .imageLeading
+            button.target = self
+            button.action = #selector(togglePopover(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.toolTip = "LIQUIDITY EDGE — Canlı Killzone & AI Rejim Asistanı"
+        }
+        statusItem = item
+        lastTitle = nil
+        lastSymbolName = nil
+    }
+
+    func tearDownStatusItem() {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+        if popover.isShown { popover.performClose(nil) }
+        popover.contentViewController = nil
+        if let item = statusItem {
+            NSStatusBar.system.removeStatusItem(item)
+            statusItem = nil
+        }
+        lastTitle = nil
+        lastSymbolName = nil
+    }
+
+    func detach() {
+        tearDownStatusItem()
+        if let observer = defaultsObserver {
+            NotificationCenter.default.removeObserver(observer)
+            defaultsObserver = nil
+        }
+    }
+
+    private func startTimerIfNeeded() {
+        guard refreshTimer == nil else { return }
+        let timer = Timer(timeInterval: 15.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateStatusButton(at: Date())
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        refreshTimer = timer
+    }
+
+    func updateStatusButton(at date: Date = Date()) {
+        guard let button = statusItem?.button else { return }
+        let status = formattedStatus(at: date)
+        if status.symbolName != lastSymbolName {
+            let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+            let image = NSImage(systemSymbolName: status.symbolName, accessibilityDescription: "Liquidity Edge")?.withSymbolConfiguration(config)
+            image?.isTemplate = true
+            button.image = image
+            lastSymbolName = status.symbolName
+        }
+        if status.title != lastTitle {
+            let font = NSFont.monospacedDigitSystemFont(ofSize: 11.5, weight: .medium)
+            button.attributedTitle = NSAttributedString(
+                string: " " + status.title,
+                attributes: [.font: font]
+            )
+            lastTitle = status.title
+        }
+    }
+
+    @objc private func togglePopover(_ sender: AnyObject?) {
+        guard let button = statusItem?.button else { return }
+        if popover.isShown {
+            popover.performClose(sender)
+            return
+        }
+        updateStatusButton(at: Date())
+        let rootView: AnyView
+        if let store = storeProvider?() {
+            let theme = store.preferences.theme
+            let scheme: ColorScheme? = theme == "System" ? nil : (theme == "Light" ? .light : .dark)
+            rootView = AnyView(
+                MenuBarAssistantView(
+                    openMainWindow: { [weak self] in
+                        self?.popover.performClose(nil)
+                        self?.openMainWindowAction?()
+                    },
+                    openNewTrade: { [weak self] in
+                        self?.popover.performClose(nil)
+                        self?.openNewTradeAction?()
+                    },
+                    openDailyPlan: { [weak self] in
+                        self?.popover.performClose(nil)
+                        self?.openDailyPlanAction?()
+                    },
+                    openCommandPalette: { [weak self] in
+                        self?.popover.performClose(nil)
+                        self?.openCommandPaletteAction?()
+                    }
+                )
+                .environment(store)
+                .environment(\.locale, L10n.locale)
+                .preferredColorScheme(scheme)
+            )
+        } else {
+            rootView = AnyView(
+                VStack(spacing: 10) {
+                    Text("LIQUIDITY EDGE").font(.headline)
+                    Button("Uygulamayı Aç") { [weak self] in
+                        self?.popover.performClose(nil)
+                        self?.openMainWindowAction?()
+                    }
+                    .buttonStyle(EdgeButtonStyle(compact: true))
+                }
+                .padding(16)
+                .frame(width: 240)
+            )
+        }
+
+        let host = NSHostingController(rootView: rootView)
+        popover.contentViewController = host
+        let fitting = host.sizeThatFits(in: CGSize(width: 392, height: 680))
+        popover.contentSize = NSSize(width: 392, height: max(540, min(640, fitting.height)))
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        // Release the hosting controller when closed so 1s TimelineView stops ticking (0% idle CPU)
+        popover.contentViewController = nil
+        updateStatusButton(at: Date())
+    }
+}
+
+/// Compact live status label preview component (used in tests and compact embeds).
 struct MenuBarStatusLabel: View {
     @Environment(JournalStore.self) private var store
     @AppStorage("journal.menubar.compact") private var compactLabel = false
@@ -77,7 +306,7 @@ struct MenuBarAssistantView: View {
                 quickActionsFooter
             }
             .padding(14)
-            .frame(width: 372)
+            .frame(width: 392)
             .background(Palette.canvas)
             .foregroundStyle(Palette.ink)
             .tint(Palette.mint)
@@ -189,23 +418,23 @@ struct MenuBarAssistantView: View {
             // 3-Column Quarterly Theory Live Strip (Daily 6h, 90m Micro, 22.5m Sub)
             HStack(spacing: 8) {
                 quarterPill(
-                    title: "GÜNLÜK 6S",
+                    title: "6S FAZ",
                     code: clock.dailyQuarter.code,
-                    detail: clock.dailyQuarter.amdxName,
+                    detail: clock.dailyQuarter.shortLabel,
                     countdown: KillzoneClockEngine.formatShortCountdown(clock.dailyQuarter.remainingSeconds),
                     accent: quarterColor(clock.dailyQuarter.code)
                 )
                 quarterPill(
-                    title: "90DK MİKRO",
+                    title: "90DK",
                     code: clock.microQuarter.code,
-                    detail: clock.microQuarter.amdxName,
+                    detail: clock.microQuarter.shortLabel,
                     countdown: KillzoneClockEngine.formatCountdown(clock.microQuarter.remainingSeconds),
                     accent: quarterColor(clock.microQuarter.code)
                 )
                 quarterPill(
-                    title: "22.5DK FAZ",
+                    title: "22.5DK",
                     code: clock.subQuarterCode,
-                    detail: "Hassas Giriş",
+                    detail: "Giriş",
                     countdown: "NY QT",
                     accent: Palette.cyan
                 )
@@ -217,29 +446,32 @@ struct MenuBarAssistantView: View {
     }
 
     private func quarterPill(title: String, code: String, detail: String, countdown: String, accent: Color) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 3) {
                 Text(title)
                     .font(.system(size: 7.5, weight: .bold, design: .monospaced))
                     .foregroundStyle(Palette.muted)
+                    .lineLimit(1)
                 Spacer(minLength: 2)
                 Text(countdown)
                     .font(.system(size: 8, weight: .semibold, design: .monospaced))
                     .monospacedDigit()
                     .foregroundStyle(accent)
+                    .lineLimit(1)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Text(code)
                     .font(.system(size: 13, weight: .heavy, design: .monospaced))
                     .foregroundStyle(accent)
+                    .lineLimit(1)
                 Text(detail)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(Palette.ink.opacity(0.85))
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(Palette.ink.opacity(0.88))
                     .lineLimit(1)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Palette.field.opacity(0.72), in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(accent.opacity(0.24), lineWidth: 0.8))

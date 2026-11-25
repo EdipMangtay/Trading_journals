@@ -1274,5 +1274,157 @@ final class WorkstationTests: XCTestCase {
         XCTAssertTrue(plan2.scenarios.contains("NQ PDH likiditesi alındı"))
         XCTAssertTrue(plan2.scenarios.contains("SSMT onaylandı"))
         XCTAssertEqual(plan2.scenarios.components(separatedBy: "\n").count, 2)
+
+        // 3. Verify native AppKit MenuBarController formatting & lifecycle without leaking status items
+        let controller = MenuBarController()
+        defer { controller.detach() }
+        controller.attach(
+            storeProvider: { store },
+            openMainWindow: {},
+            openNewTrade: {},
+            openDailyPlan: {},
+            openCommandPalette: {}
+        )
+        let status = controller.formattedStatus(at: now)
+        XCTAssertFalse(status.title.isEmpty)
+        XCTAssertFalse(status.symbolName.isEmpty)
+        XCTAssertTrue(status.title.contains("x"), "Menu bar title must include AI risk multiplier")
+        controller.detach()
+    }
+
+    // MARK: - Stress & Edge-Case Verification (PDFKit + Killzone Clock)
+
+    @MainActor func testPDFReportStressEdgeCasesAndMultipleCurrencies() throws {
+        let cal = JournalPreferences().calendar
+
+        // 1. Verify all discipline grade tiers (S+, A, B, C, D, —)
+        XCTAssertEqual(PDFReportService.computeDisciplineGrade(performance: Performance()).letter, "—")
+        var pS = Performance(); pS.count = 20; pS.compliance = 100; pS.executionScore = 95; pS.rCount = 20; pS.totalR = 40
+        XCTAssertEqual(PDFReportService.computeDisciplineGrade(performance: pS).letter, "S+")
+        var pD = Performance(); pD.count = 10; pD.compliance = 20; pD.executionScore = 30; pD.rCount = 10; pD.totalR = -10
+        XCTAssertEqual(PDFReportService.computeDisciplineGrade(performance: pD).letter, "D")
+
+        // 2. Single-trade negative EUR report with long Turkish text & special characters
+        var single = TradeRecord()
+        single.instrument = "EURUSD"
+        single.direction = "Short"
+        single.session = "NY PM"
+        single.setupName = "Çok Uzun Kurulum Adı — QT + SSMT + CRT Süper Teyitli Giriş"
+        single.grossPnL = -420.50
+        single.fees = 9.50
+        single.rMultiple = nil
+        single.followsPlan = false
+        single.brokenRules = ["Chased entry", "Pattern recognition override"]
+        let longTurkish = String(repeating: "ĞÜŞİÖÇğüşıöç disiplin ve süreç kontrolü. ", count: 30)
+        let singleReq = PDFReportService.ReportRequest(
+            title: "Stres Testi Raporu (EUR)",
+            subtitle: "Uç Durum",
+            periodLabel: "01.01.2026 – 31.01.2026",
+            accountName: "Funded EUR 25K",
+            currency: "EUR",
+            startingBalance: 25_000,
+            trades: [single],
+            allAccountTrades: [single],
+            calendar: cal,
+            reviewNotes: PDFReportService.ReviewNotesSection(
+                period: "Aylık",
+                worked: longTurkish,
+                didNot: longTurkish,
+                repeatNext: longTurkish,
+                stop: longTurkish,
+                adjustment: longTurkish
+            )
+        )
+        let singleDoc = try PDFReportService.generateDocument(for: singleReq)
+        XCTAssertEqual(singleDoc.pageCount, 2)
+        let singleText = (0..<singleDoc.pageCount).compactMap { singleDoc.page(at: $0)?.string }.joined(separator: "\n")
+        XCTAssertTrue(singleText.contains("EURUSD"))
+        XCTAssertTrue(singleText.contains("ĞÜŞİÖÇğüşıöç"))
+
+        // 3. 200-trade large-scale stress benchmark across TRY currency
+        let baseDate = Date(timeIntervalSince1970: 1_760_000_000)
+        var bulkTrades: [TradeRecord] = []
+        bulkTrades.reserveCapacity(200)
+        for i in 0..<200 {
+            var t = TradeRecord()
+            t.date = baseDate.addingTimeInterval(Double(i) * 43_200)
+            t.exitDate = t.date.addingTimeInterval(1_800)
+            t.instrument = i % 3 == 0 ? "NQ" : i % 3 == 1 ? "XAUUSD" : "ES"
+            t.direction = i % 2 == 0 ? "Long" : "Short"
+            t.session = Catalog.sessions[i % Catalog.sessions.count]
+            t.setupName = "Model \(i % 8)"
+            let win = (i % 5 != 0)
+            t.grossPnL = win ? 650.0 : -300.0
+            t.fees = 12.0
+            t.rMultiple = win ? 2.1 : -1.0
+            t.followsPlan = (i % 7 != 0)
+            t.brokenRules = t.followsPlan ? [] : ["Early entry"]
+            bulkTrades.append(t)
+        }
+        let t0 = CFAbsoluteTimeGetCurrent()
+        let bulkDoc = try PDFReportService.generateDocument(for: PDFReportService.ReportRequest(
+            title: "200 İşlemlik Yıllık Karne",
+            subtitle: "Yüksek Hacim",
+            periodLabel: "2026 Yılı",
+            accountName: "Ana Hesap TRY",
+            currency: "TRY",
+            startingBalance: 500_000,
+            trades: bulkTrades,
+            allAccountTrades: bulkTrades,
+            calendar: cal,
+            reviewNotes: nil
+        ))
+        let bulkMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000.0
+        XCTAssertEqual(bulkDoc.pageCount, 2)
+        XCTAssertLessThan(bulkMs, 2000.0, "200-trade PDF export must stay fast")
+        XCTAssertTrue((bulkDoc.page(at: 1)?.string ?? "").contains("TOPLAM 200"))
+    }
+
+    func testKillzoneClockEngineCustomTimezonesMidnightAndMalformedSessions() throws {
+        let nyTZ = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        var nyCal = Calendar(identifier: .gregorian)
+        nyCal.timeZone = nyTZ
+
+        func nyDate(_ y: Int, _ m: Int, _ d: Int, _ h: Int, _ min: Int, _ s: Int = 0) throws -> Date {
+            try XCTUnwrap(nyCal.date(from: DateComponents(timeZone: nyTZ, year: y, month: m, day: d, hour: h, minute: min, second: s)))
+        }
+
+        // 1. Malformed / empty session preferences gracefully fall back to canonical defaults
+        var badPrefs = JournalPreferences()
+        badPrefs.sessions = ["Broken"]
+        badPrefs.sessionHours = ["Broken": "invalid-clock"]
+        let parsedFallback = KillzoneClockEngine.parseSessions(from: badPrefs)
+        XCTAssertGreaterThanOrEqual(parsedFallback.count, 5)
+
+        // 2. Friday 17:01 NY -> Weekend closed; Sunday 17:59 NY -> Still closed; Sunday 18:01 NY -> Market open (Daily Q1)
+        let friClose = try nyDate(2026, 6, 12, 17, 1)
+        let sunBefore = try nyDate(2026, 6, 14, 17, 59)
+        let sunOpen = try nyDate(2026, 6, 14, 18, 1)
+        let prefs = JournalPreferences()
+        XCTAssertTrue(KillzoneClockEngine.snapshot(at: friClose, preferences: prefs).isWeekendClosed)
+        XCTAssertTrue(KillzoneClockEngine.snapshot(at: sunBefore, preferences: prefs).isWeekendClosed)
+        let openSnap = KillzoneClockEngine.snapshot(at: sunOpen, preferences: prefs)
+        XCTAssertFalse(openSnap.isWeekendClosed)
+        XCTAssertEqual(openSnap.dailyQuarter.code, "Q1")
+        XCTAssertEqual(openSnap.dailyQuarter.shortLabel, "Akümül.")
+        XCTAssertEqual(openSnap.microQuarter.code, "Q1")
+
+        // 3. Midnight NY transition (23:59:59 -> 00:00:00): Q1 -> Q2 and TDO becomes active
+        let beforeMid = try nyDate(2026, 6, 10, 23, 59, 59)
+        let atMid = try nyDate(2026, 6, 11, 0, 0, 0)
+        let snapBefore = KillzoneClockEngine.snapshot(at: beforeMid, preferences: prefs)
+        let snapAt = KillzoneClockEngine.snapshot(at: atMid, preferences: prefs)
+        XCTAssertEqual(snapBefore.dailyQuarter.code, "Q1")
+        XCTAssertEqual(snapAt.dailyQuarter.code, "Q2")
+        XCTAssertEqual(snapAt.microQuarter.code, "Q1")
+        XCTAssertTrue(snapAt.trueOpenStatus.contains("TDO Aktif"))
+
+        // 4. Custom trading timezone (Europe/Istanbul) keeps trading clock in Istanbul while QT stays anchored to NY
+        var istPrefs = JournalPreferences()
+        istPrefs.timezone = "Europe/Istanbul"
+        let istSnap = KillzoneClockEngine.snapshot(at: try nyDate(2026, 6, 11, 10, 0), preferences: istPrefs)
+        XCTAssertEqual(istSnap.dailyQuarter.code, "Q3")
+        XCTAssertTrue(istSnap.tradingTimeFormatted.hasPrefix("17:00"))
+        XCTAssertEqual(istSnap.nyTimeFormatted, "10:00 NY")
     }
 }

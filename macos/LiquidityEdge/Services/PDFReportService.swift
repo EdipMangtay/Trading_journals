@@ -277,13 +277,13 @@ enum PDFReportService {
 
         // Subtitle & Period Metadata
         let dateStamp = Format.date(request.generatedAt, calendar: request.calendar, time: true)
-        let meta = "\(request.accountName)  ·  \(request.periodLabel)  ·  Oluşturma: \(dateStamp)"
+        let meta = "\(request.accountName) · \(request.periodLabel) · \(dateStamp)"
         drawText(
             ctx,
             meta,
-            rect: CGRect(x: marginX, y: bannerY + 14, width: contentWidth - 140, height: 24),
-            font: .systemFont(ofSize: 9.5, weight: .medium),
-            color: NSColor(white: 0.78, alpha: 1.0)
+            rect: CGRect(x: marginX, y: bannerY + 14, width: contentWidth - 134, height: 22),
+            font: .systemFont(ofSize: 8.6, weight: .medium),
+            color: NSColor(white: 0.80, alpha: 1.0)
         )
 
         // Right-side Discipline Grade Card
@@ -596,8 +596,8 @@ enum PDFReportService {
         drawRoundedRect(ctx, rect: r1, radius: 8, fill: cCardBg, stroke: regColor.withAlphaComponent(0.45), lineWidth: 0.9)
         drawText(ctx, "AKTİF REJİM (CUSUM)", rect: CGRect(x: r1.minX + 10, y: r1.maxY - 17, width: cardW - 20, height: 11), font: .monospacedSystemFont(ofSize: 7.0, weight: .bold), color: cMuted)
         drawText(ctx, ml.regime.state.rawValue, rect: CGRect(x: r1.minX + 10, y: r1.maxY - 36, width: cardW - 20, height: 16), font: .systemFont(ofSize: 10.5, weight: .bold), color: regColor)
-        drawText(ctx, "Risk Çarpanı: \(String(format: "%.2fx", ml.regime.riskMultiplier))  ·  EWMA \(Format.r(ml.regime.ewmaR))", rect: CGRect(x: r1.minX + 10, y: r1.maxY - 52, width: cardW - 20, height: 13), font: .monospacedSystemFont(ofSize: 7.6, weight: .semibold), color: cInk)
-        drawText(ctx, ml.regime.advice, rect: CGRect(x: r1.minX + 10, y: r1.minY + 7, width: cardW - 20, height: 32), font: .systemFont(ofSize: 7.5, weight: .regular), color: cMuted)
+        drawText(ctx, "Risk: \(String(format: "%.2fx", ml.regime.riskMultiplier)) · EWMA \(Format.r(ml.regime.ewmaR))", rect: CGRect(x: r1.minX + 10, y: r1.maxY - 52, width: cardW - 20, height: 13), font: .monospacedSystemFont(ofSize: 7.0, weight: .semibold), color: cInk)
+        drawText(ctx, ml.regime.advice, rect: CGRect(x: r1.minX + 10, y: r1.minY + 7, width: cardW - 20, height: 32), font: .systemFont(ofSize: 7.4, weight: .regular), color: cMuted)
 
         // Card 2: Walk-Forward OOS Validation
         let r2 = CGRect(x: marginX + cardW + gap, y: cardY, width: cardW, height: cardH)
@@ -606,11 +606,12 @@ enum PDFReportService {
         drawText(ctx, "WALK-FORWARD DOĞRULUK (OOS)", rect: CGRect(x: r2.minX + 10, y: r2.maxY - 17, width: cardW - 20, height: 11), font: .monospacedSystemFont(ofSize: 7.0, weight: .bold), color: cMuted)
         let aucText = ml.validation.isReady ? "ROC-AUC \(String(format: "%.3f", ml.validation.rocAUC))" : "Veri Birikiyor"
         drawText(ctx, aucText, rect: CGRect(x: r2.minX + 10, y: r2.maxY - 36, width: cardW - 20, height: 16), font: .systemFont(ofSize: 11.5, weight: .bold), color: aucColor)
+        let liftSign = ml.validation.winRateLiftPoints >= 0 ? "+" : ""
         let liftStr = ml.validation.isReady
-            ? "Brier Beceri: %\(String(format: "%.1f", ml.validation.brierSkillPercent)) · WR Fark: +\(String(format: "%.1f", ml.validation.winRateLiftPoints))p"
-            : "En az 12 işlemle OOS doğrulama açılır."
-        drawText(ctx, liftStr, rect: CGRect(x: r2.minX + 10, y: r2.maxY - 52, width: cardW - 20, height: 13), font: .monospacedSystemFont(ofSize: 7.3, weight: .semibold), color: cInk)
-        drawText(ctx, "\(ml.validation.qualityLabel) (\(ml.validation.evaluatedCount) kronolojik test).", rect: CGRect(x: r2.minX + 10, y: r2.minY + 7, width: cardW - 20, height: 32), font: .systemFont(ofSize: 7.5, weight: .regular), color: cMuted)
+            ? "Brier: %\(String(format: "%.1f", ml.validation.brierSkillPercent)) · WR: \(liftSign)\(String(format: "%.1f", ml.validation.winRateLiftPoints))p"
+            : "En az 12 işlemle OOS açılır."
+        drawText(ctx, liftStr, rect: CGRect(x: r2.minX + 10, y: r2.maxY - 52, width: cardW - 20, height: 13), font: .monospacedSystemFont(ofSize: 6.9, weight: .semibold), color: cInk)
+        drawText(ctx, "\(ml.validation.qualityLabel) (\(ml.validation.evaluatedCount) kronolojik test).", rect: CGRect(x: r2.minX + 10, y: r2.minY + 7, width: cardW - 20, height: 32), font: .systemFont(ofSize: 7.4, weight: .regular), color: cMuted)
 
         // Card 3: AI Filter Counterfactual & Tilt
         let r3 = CGRect(x: marginX + (cardW + gap) * 2, y: cardY, width: cardW, height: cardH)
@@ -618,13 +619,17 @@ enum PDFReportService {
         let tiltColor = ml.tilt.level == .elevated ? cRed : ml.tilt.level == .caution ? cAmber : cMint
         drawRoundedRect(ctx, rect: r3, radius: 8, fill: cCardBg, stroke: tiltColor.withAlphaComponent(0.45), lineWidth: 0.9)
         drawText(ctx, "AI FİLTRE ETKİSİ & TİLT", rect: CGRect(x: r3.minX + 10, y: r3.maxY - 17, width: cardW - 20, height: 11), font: .monospacedSystemFont(ofSize: 7.0, weight: .bold), color: cMuted)
-        let savedPrefix = sim.savedCapital >= 0 ? "+" : ""
+        let savedPrefix = sim.savedCapital > 0 ? "+" : ""
         drawText(ctx, "\(savedPrefix)\(Format.money(sim.savedCapital, currency: currency))", rect: CGRect(x: r3.minX + 10, y: r3.maxY - 36, width: cardW - 20, height: 16), font: .systemFont(ofSize: 11.5, weight: .bold), color: sim.savedCapital >= 0 ? cMint : cAmber)
-        drawText(ctx, "Tilt: \(ml.tilt.level.rawValue) (\(ml.tilt.score)/100)", rect: CGRect(x: r3.minX + 10, y: r3.maxY - 52, width: cardW - 20, height: 13), font: .monospacedSystemFont(ofSize: 7.4, weight: .semibold), color: tiltColor)
-        let simNote = sim.skippedTrades > 0
-            ? "\(sim.skippedTrades) düşük kaliteli işlem elenerek DD %\(String(format: "%.0f", sim.drawdownReductionPercent)) azaltılır."
-            : "Mevcut kayıtlar AI disiplin eşiğinin üzerinde."
-        drawText(ctx, simNote, rect: CGRect(x: r3.minX + 10, y: r3.minY + 7, width: cardW - 20, height: 32), font: .systemFont(ofSize: 7.5, weight: .regular), color: cMuted)
+        drawText(ctx, "Tilt: \(ml.tilt.level.rawValue) (\(ml.tilt.score)/100)", rect: CGRect(x: r3.minX + 10, y: r3.maxY - 52, width: cardW - 20, height: 13), font: .monospacedSystemFont(ofSize: 6.9, weight: .semibold), color: tiltColor)
+        let simNote: String = {
+            guard sim.skippedTrades > 0 else { return "Mevcut kayıtlar AI disiplin eşiğinin üzerinde." }
+            if sim.savedCapital >= 0 {
+                return "\(sim.skippedTrades) düşük kaliteli işlem elenerek DD %\(String(format: "%.0f", sim.drawdownReductionPercent)) azaltılır."
+            }
+            return "\(sim.skippedTrades) kural dışı/düşük skorlu işlem filtrelendi (DD azalımı %\(String(format: "%.0f", sim.drawdownReductionPercent)))."
+        }()
+        drawText(ctx, simNote, rect: CGRect(x: r3.minX + 10, y: r3.minY + 7, width: cardW - 20, height: 32), font: .systemFont(ofSize: 7.4, weight: .regular), color: cMuted)
 
         return cardY
     }
@@ -643,11 +648,15 @@ enum PDFReportService {
         let rowH: CGFloat = 20
         let tableH = CGFloat(max(1, visibleSetups.count) + 1) * rowH
         let tableRect = CGRect(x: marginX, y: y - tableH, width: contentWidth, height: tableH)
-        drawRoundedRect(ctx, rect: tableRect, radius: 7, fill: .white, stroke: cCardBorder, lineWidth: 0.75)
+        drawRoundedRect(ctx, rect: tableRect, radius: 7, fill: .white, stroke: nil)
 
-        // Header strip
+        // Header strip clipped to rounded table container
         let headerRect = CGRect(x: tableRect.minX, y: tableRect.maxY - rowH, width: tableRect.width, height: rowH)
-        drawRoundedRect(ctx, rect: headerRect, radius: 0, fill: cCardBg, stroke: nil)
+        ctx.saveGState()
+        ctx.addPath(CGPath(roundedRect: tableRect, cornerWidth: 7, cornerHeight: 7, transform: nil))
+        ctx.clip()
+        ctx.setFillColor(cCardBg.cgColor)
+        ctx.fill(headerRect)
 
         let cols: [(String, CGFloat, CGFloat, NSTextAlignment)] = [
             ("KURULUM / STRATEJİ", 12, 185, .left),
@@ -669,7 +678,7 @@ enum PDFReportService {
                 if idx.isMultiple(of: 2) {
                     ctx.saveGState()
                     ctx.setFillColor(cRowAlt.cgColor)
-                    ctx.fill(CGRect(x: tableRect.minX + 0.5, y: rowY, width: tableRect.width - 1, height: rowH))
+                    ctx.fill(CGRect(x: tableRect.minX, y: rowY, width: tableRect.width, height: rowH))
                     ctx.restoreGState()
                 }
                 let p = group.performance
@@ -681,6 +690,8 @@ enum PDFReportService {
                 drawText(ctx, Format.percent(p.compliance), rect: CGRect(x: tableRect.minX + 458, y: rowY + 4, width: 50, height: 13), font: .monospacedSystemFont(ofSize: 8.2, weight: .regular), color: p.compliance >= 80 ? cMint : cAmber, alignment: .right)
             }
         }
+        ctx.restoreGState()
+        drawRoundedRect(ctx, rect: tableRect, radius: 7, fill: nil, stroke: cCardBorder, lineWidth: 0.75)
 
         y = tableRect.minY - 12
 
@@ -777,9 +788,9 @@ enum PDFReportService {
                     ctx.fill(CGRect(x: leftRect.minX + 6, y: rowY - 2, width: halfW - 12, height: 18))
                     ctx.restoreGState()
                 }
-                drawText(ctx, L10n.text(s.name), rect: CGRect(x: leftRect.minX + 12, y: rowY, width: 92, height: 14), font: .systemFont(ofSize: 8.2, weight: .semibold), color: cInk)
-                drawText(ctx, "n=\(s.performance.count) · \(Format.percent(s.performance.winRate))", rect: CGRect(x: leftRect.minX + 104, y: rowY, width: 72, height: 14), font: .monospacedSystemFont(ofSize: 7.4, weight: .regular), color: cMuted)
-                drawText(ctx, Format.money(s.performance.netPnL, currency: currency), rect: CGRect(x: leftRect.maxX - 78, y: rowY, width: 66, height: 14), font: .monospacedSystemFont(ofSize: 8.0, weight: .bold), color: s.performance.netPnL >= 0 ? cMint : cRed, alignment: .right)
+                drawText(ctx, shortSessionLabel(s.name), rect: CGRect(x: leftRect.minX + 12, y: rowY, width: 102, height: 14), font: .systemFont(ofSize: 8.0, weight: .semibold), color: cInk)
+                drawText(ctx, "n=\(s.performance.count) · \(Format.percent(s.performance.winRate))", rect: CGRect(x: leftRect.minX + 114, y: rowY, width: 66, height: 14), font: .monospacedSystemFont(ofSize: 7.2, weight: .regular), color: cMuted)
+                drawText(ctx, Format.money(s.performance.netPnL, currency: currency), rect: CGRect(x: leftRect.maxX - 74, y: rowY, width: 62, height: 14), font: .monospacedSystemFont(ofSize: 7.8, weight: .bold), color: s.performance.netPnL >= 0 ? cMint : cRed, alignment: .right)
             }
         }
 
@@ -799,9 +810,9 @@ enum PDFReportService {
                     ctx.fill(CGRect(x: rightRect.minX + 6, y: rowY - 2, width: halfW - 12, height: 18))
                     ctx.restoreGState()
                 }
-                drawText(ctx, L10n.text(m.name), rect: CGRect(x: rightRect.minX + 12, y: rowY, width: 120, height: 14), font: .systemFont(ofSize: 8.0, weight: .semibold), color: cInk)
-                drawText(ctx, "\(m.performance.count)x · \(Format.r(m.performance.totalR))", rect: CGRect(x: rightRect.minX + 132, y: rowY, width: 54, height: 14), font: .monospacedSystemFont(ofSize: 7.4, weight: .medium), color: cAmber)
-                drawText(ctx, Format.money(m.performance.netPnL, currency: currency), rect: CGRect(x: rightRect.maxX - 70, y: rowY, width: 58, height: 14), font: .monospacedSystemFont(ofSize: 7.8, weight: .bold), color: m.performance.netPnL >= 0 ? cAmber : cRed, alignment: .right)
+                drawText(ctx, L10n.text(m.name), rect: CGRect(x: rightRect.minX + 12, y: rowY, width: 132, height: 14), font: .systemFont(ofSize: 7.3, weight: .semibold), color: cInk)
+                drawText(ctx, "\(m.performance.count)x · \(Format.r(m.performance.totalR))", rect: CGRect(x: rightRect.minX + 144, y: rowY, width: 48, height: 14), font: .monospacedSystemFont(ofSize: 7.0, weight: .medium), color: cAmber, alignment: .right)
+                drawText(ctx, Format.money(m.performance.netPnL, currency: currency), rect: CGRect(x: rightRect.maxX - 60, y: rowY, width: 50, height: 14), font: .monospacedSystemFont(ofSize: 7.3, weight: .bold), color: m.performance.netPnL >= 0 ? cAmber : cRed, alignment: .right)
             }
         }
 
@@ -826,20 +837,24 @@ enum PDFReportService {
         let displayTrades = Array(trades.reversed().prefix(maxRows))
         let tableH = CGFloat(displayTrades.count + 1) * rowH
         let tableRect = CGRect(x: marginX, y: topY - 22 - tableH, width: contentWidth, height: tableH)
-        drawRoundedRect(ctx, rect: tableRect, radius: 7, fill: .white, stroke: cCardBorder, lineWidth: 0.75)
+        drawRoundedRect(ctx, rect: tableRect, radius: 7, fill: .white, stroke: nil)
 
         let headerRect = CGRect(x: tableRect.minX, y: tableRect.maxY - rowH, width: tableRect.width, height: rowH)
-        drawRoundedRect(ctx, rect: headerRect, radius: 0, fill: cCardBg, stroke: nil)
+        ctx.saveGState()
+        ctx.addPath(CGPath(roundedRect: tableRect, cornerWidth: 7, cornerHeight: 7, transform: nil))
+        ctx.clip()
+        ctx.setFillColor(cCardBg.cgColor)
+        ctx.fill(headerRect)
 
         let cols: [(String, CGFloat, CGFloat, NSTextAlignment)] = [
-            ("TARİH", 10, 74, .left),
-            ("PARİTE", 86, 56, .left),
-            ("YÖN", 144, 38, .left),
-            ("SEANS", 184, 58, .left),
-            ("KURULUM", 244, 108, .left),
-            ("R", 354, 44, .right),
-            ("NET K/Z", 400, 68, .right),
-            ("NOT", 472, 38, .right)
+            ("TARİH", 10, 72, .left),
+            ("PARİTE", 84, 54, .left),
+            ("YÖN", 140, 36, .left),
+            ("SEANS", 178, 62, .left),
+            ("KURULUM", 242, 114, .left),
+            ("R", 358, 44, .right),
+            ("NET K/Z", 404, 66, .right),
+            ("NOT", 474, 36, .right)
         ]
         for col in cols {
             drawText(ctx, col.0, rect: CGRect(x: tableRect.minX + col.1, y: headerRect.minY + 4, width: col.2, height: 11), font: .monospacedSystemFont(ofSize: 6.9, weight: .bold), color: cMuted, alignment: col.3)
@@ -850,21 +865,34 @@ enum PDFReportService {
             if idx.isMultiple(of: 2) {
                 ctx.saveGState()
                 ctx.setFillColor(cRowAlt.cgColor)
-                ctx.fill(CGRect(x: tableRect.minX + 0.5, y: rowY, width: tableRect.width - 1, height: rowH))
+                ctx.fill(CGRect(x: tableRect.minX, y: rowY, width: tableRect.width, height: rowH))
                 ctx.restoreGState()
             }
             let dateStr = Format.date(t.date, calendar: request.calendar)
-            drawText(ctx, dateStr, rect: CGRect(x: tableRect.minX + 10, y: rowY + 3.5, width: 74, height: 12), font: .monospacedSystemFont(ofSize: 7.2, weight: .regular), color: cMuted)
-            drawText(ctx, t.instrument, rect: CGRect(x: tableRect.minX + 86, y: rowY + 3.5, width: 56, height: 12), font: .systemFont(ofSize: 7.8, weight: .bold), color: cInk)
-            drawText(ctx, t.direction, rect: CGRect(x: tableRect.minX + 144, y: rowY + 3.5, width: 38, height: 12), font: .monospacedSystemFont(ofSize: 7.2, weight: .semibold), color: t.direction == "Long" ? cMint : cRed)
-            drawText(ctx, L10n.text(t.session), rect: CGRect(x: tableRect.minX + 184, y: rowY + 3.5, width: 58, height: 12), font: .systemFont(ofSize: 7.4), color: cMuted)
-            drawText(ctx, t.setupName, rect: CGRect(x: tableRect.minX + 244, y: rowY + 3.5, width: 108, height: 12), font: .systemFont(ofSize: 7.6), color: cInk)
-            drawText(ctx, Format.r(t.rMultiple), rect: CGRect(x: tableRect.minX + 354, y: rowY + 3.5, width: 44, height: 12), font: .monospacedSystemFont(ofSize: 7.6, weight: .semibold), color: (t.rMultiple ?? 0) >= 0 ? cMint : cRed, alignment: .right)
-            drawText(ctx, Format.money(t.netPnL, currency: request.currency), rect: CGRect(x: tableRect.minX + 400, y: rowY + 3.5, width: 68, height: 12), font: .monospacedSystemFont(ofSize: 7.6, weight: .bold), color: t.netPnL >= 0 ? cMint : cRed, alignment: .right)
-            drawText(ctx, t.compliant ? (t.grade.isEmpty ? "✓" : t.grade) : "İHLAL", rect: CGRect(x: tableRect.minX + 472, y: rowY + 3.5, width: 38, height: 12), font: .monospacedSystemFont(ofSize: 7.2, weight: .bold), color: t.compliant ? cMint : cAmber, alignment: .right)
+            drawText(ctx, dateStr, rect: CGRect(x: tableRect.minX + 10, y: rowY + 3.5, width: 72, height: 12), font: .monospacedSystemFont(ofSize: 7.2, weight: .regular), color: cMuted)
+            drawText(ctx, t.instrument, rect: CGRect(x: tableRect.minX + 84, y: rowY + 3.5, width: 54, height: 12), font: .systemFont(ofSize: 7.8, weight: .bold), color: cInk)
+            drawText(ctx, t.direction, rect: CGRect(x: tableRect.minX + 140, y: rowY + 3.5, width: 36, height: 12), font: .monospacedSystemFont(ofSize: 7.2, weight: .semibold), color: t.direction == "Long" ? cMint : cRed)
+            drawText(ctx, shortSessionLabel(t.session), rect: CGRect(x: tableRect.minX + 178, y: rowY + 3.5, width: 62, height: 12), font: .systemFont(ofSize: 7.4), color: cMuted)
+            drawText(ctx, t.setupName, rect: CGRect(x: tableRect.minX + 242, y: rowY + 3.5, width: 114, height: 12), font: .systemFont(ofSize: 7.6), color: cInk)
+            drawText(ctx, Format.r(t.rMultiple), rect: CGRect(x: tableRect.minX + 358, y: rowY + 3.5, width: 44, height: 12), font: .monospacedSystemFont(ofSize: 7.6, weight: .semibold), color: (t.rMultiple ?? 0) >= 0 ? cMint : cRed, alignment: .right)
+            drawText(ctx, Format.money(t.netPnL, currency: request.currency), rect: CGRect(x: tableRect.minX + 404, y: rowY + 3.5, width: 66, height: 12), font: .monospacedSystemFont(ofSize: 7.6, weight: .bold), color: t.netPnL >= 0 ? cMint : cRed, alignment: .right)
+            drawText(ctx, t.compliant ? (t.grade.isEmpty ? "✓" : t.grade) : "İHLAL", rect: CGRect(x: tableRect.minX + 474, y: rowY + 3.5, width: 36, height: 12), font: .monospacedSystemFont(ofSize: 7.2, weight: .bold), color: t.compliant ? cMint : cAmber, alignment: .right)
         }
+        ctx.restoreGState()
+        drawRoundedRect(ctx, rect: tableRect, radius: 7, fill: nil, stroke: cCardBorder, lineWidth: 0.75)
 
         return tableRect.minY
+    }
+
+    private static func shortSessionLabel(_ raw: String) -> String {
+        switch raw {
+        case "NY AM": return "NY AM"
+        case "NY PM": return "NY PM"
+        case "NY Lunch": return "NY Öğle"
+        case "London": return "Londra"
+        case "Asia": return "Asya"
+        default: return L10n.text(raw)
+        }
     }
 
     private static func drawFooter(_ ctx: CGContext, pageNumber: Int, totalPages: Int, request: ReportRequest) {

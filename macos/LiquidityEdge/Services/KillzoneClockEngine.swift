@@ -51,6 +51,7 @@ enum KillzoneClockEngine {
     struct QuarterPhase: Equatable {
         let code: String       // "Q1", "Q2", "Q3", "Q4"
         let amdxName: String   // "Accumulation", "Manipulation", "Distribution", "Continuation / X"
+        let shortLabel: String // Concise label for compact Menu Bar pills
         let sessionHint: String
         let remainingSeconds: TimeInterval
         let progress: Double   // 0.0...1.0
@@ -221,6 +222,7 @@ enum KillzoneClockEngine {
         let dailyQuarter = QuarterPhase(
             code: dailyMeta.code,
             amdxName: dailyMeta.amdx,
+            shortLabel: dailyMeta.short,
             sessionHint: dailyMeta.hint,
             remainingSeconds: dailyRem,
             progress: dailyProg
@@ -235,6 +237,7 @@ enum KillzoneClockEngine {
         let microQuarter = QuarterPhase(
             code: microMeta.code,
             amdxName: microMeta.amdx,
+            shortLabel: microMeta.short,
             sessionHint: microMeta.hint,
             remainingSeconds: microRem,
             progress: microProg
@@ -269,12 +272,12 @@ enum KillzoneClockEngine {
         )
     }
 
-    private static func quarterMetadata(index: Int, isDaily: Bool) -> (code: String, amdx: String, hint: String) {
+    private static func quarterMetadata(index: Int, isDaily: Bool) -> (code: String, amdx: String, short: String, hint: String) {
         switch index {
-        case 0: return ("Q1", "Accumulation", isDaily ? "Asia (18:00–00:00 NY)" : "90dk Akümülasyon")
-        case 1: return ("Q2", "Manipulation", isDaily ? "London (00:00–06:00 NY)" : "90dk Manipülasyon / Judas")
-        case 2: return ("Q3", "Distribution", isDaily ? "NY AM (06:00–12:00 NY)" : "90dk Dağıtım / Ana Hareket")
-        default: return ("Q4", "Continuation / X", isDaily ? "NY PM (12:00–18:00 NY)" : "90dk Devam / Dönüş")
+        case 0: return ("Q1", "Accumulation", "Akümül.", isDaily ? "Asia (18:00–00:00 NY)" : "90dk Akümülasyon")
+        case 1: return ("Q2", "Manipulation", "Manip.", isDaily ? "London (00:00–06:00 NY)" : "90dk Manipülasyon / Judas")
+        case 2: return ("Q3", "Distribution", "Dağıtım", isDaily ? "NY AM (06:00–12:00 NY)" : "90dk Dağıtım / Ana Hareket")
+        default: return ("Q4", "Continuation / X", "Devam/X", isDaily ? "NY PM (12:00–18:00 NY)" : "90dk Devam / Dönüş")
         }
     }
 
