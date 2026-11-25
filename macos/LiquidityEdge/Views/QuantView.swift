@@ -32,7 +32,7 @@ struct QuantView: View {
     }
 
     private var underwaterInfo: WorkstationAnalytics.Underwater {
-        WorkstationAnalytics.underwater(trades)
+        store.scopedUnderwater
     }
 
     private var rollingPoints: [WorkstationAnalytics.RollingPoint] {
@@ -41,7 +41,7 @@ struct QuantView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: 24) {
                 headerView
 
                 if trades.count < 3 {
@@ -87,46 +87,61 @@ struct QuantView: View {
     // MARK: - Key Risk Metrics Ribbon
     private var keyRiskMetricsRibbon: some View {
         let p = store.scopedPerformance
-        return HStack(spacing: 20) {
-            TerminalMetric(
-                title: "EN UZUN TOPARLANMA",
-                value: underwaterInfo.longestRecoveredSeconds != nil ? "\(Int(underwaterInfo.longestRecoveredSeconds! / 86400)) gün" : "—"
-            )
-            TerminalMetric(
-                title: "MEVCUT SU ALTI DURUMU",
-                value: underwaterInfo.ongoing ? "Devam ediyor (\(Int(underwaterInfo.longestSeconds / 86400))g)" : "Zirvede",
-                color: underwaterInfo.ongoing ? Palette.amber : Palette.mint
-            )
-            TerminalMetric(
-                title: "EN UZUN KAYIP SERİSİ",
-                value: "\(p.longestLossStreak) işlem",
-                color: p.longestLossStreak >= 4 ? Palette.red : Palette.ink
-            )
-            TerminalMetric(
-                title: "R DEĞİŞKENLİK / STABİLİTE",
-                value: Format.number(calculateRStability(trades), digits: 2)
-            )
-            TerminalMetric(
-                title: "TOPARLANMA FAKTÖRÜ",
-                value: p.recoveryFactor.map { Format.number($0) } ?? "—"
-            )
+        return GlassRibbon(accent: underwaterInfo.ongoing ? Palette.amber : Palette.mint) {
+            HStack(spacing: 0) {
+                TerminalMetric(
+                    title: "EN UZUN TOPARLANMA",
+                    value: underwaterInfo.longestRecoveredSeconds != nil ? "\(Int(underwaterInfo.longestRecoveredSeconds! / 86400)) gün" : "—"
+                )
+                quantDivider
+                TerminalMetric(
+                    title: "MEVCUT SU ALTI DURUMU",
+                    value: underwaterInfo.ongoing ? "Devam ediyor (\(Int(underwaterInfo.longestSeconds / 86400))g)" : "Zirvede",
+                    color: underwaterInfo.ongoing ? Palette.amber : Palette.mint
+                )
+                quantDivider
+                TerminalMetric(
+                    title: "EN UZUN KAYIP SERİSİ",
+                    value: "\(p.longestLossStreak) işlem",
+                    color: p.longestLossStreak >= 4 ? Palette.red : Palette.ink
+                )
+                quantDivider
+                TerminalMetric(
+                    title: "R DEĞİŞKENLİK / STABİLİTE",
+                    value: Format.number(store.scopedRStability, digits: 2)
+                )
+                quantDivider
+                TerminalMetric(
+                    title: "TOPARLANMA FAKTÖRÜ",
+                    value: p.recoveryFactor.map { Format.number($0) } ?? "—",
+                    color: (p.recoveryFactor ?? 0) >= 3 ? Palette.mint : Palette.ink
+                )
+            }
         }
-        .padding(20)
-        .background(Palette.panel, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private var quantDivider: some View {
+        Rectangle().fill(Palette.line.opacity(0.7)).frame(width: 1, height: 40).padding(.horizontal, 16)
     }
 
     // MARK: - Monte Carlo Section
     private var monteCarloSection: some View {
-        Panel(
+        let sim = activeSimulation
+        let timingTag: String = {
+            guard let sim, sim.computeDurationMs > 0 else { return "" }
+            return " · ⚡ \(Format.number(sim.computeDurationMs, digits: 1)) ms · \(sim.workerCores) çekirdek"
+        }()
+        return Panel(
             title: "MONTE CARLO YENİDEN ÖRNEKLEME",
-            subtitle: "\(Int(runs)) simülasyon · \(Int(horizon)) işlem ufku · \(shuffle ? "Rastgele sıra (Shuffle)" : "Yerine koyarak örnekleme (Bootstrap)")"
+            subtitle: "\(Int(runs)) simülasyon · \(Int(horizon)) işlem ufku · \(shuffle ? "Rastgele sıra (Shuffle)" : "Yerine koyarak örnekleme (Bootstrap)")\(timingTag)",
+            accent: Palette.mint
         ) {
             VStack(alignment: .leading, spacing: 20) {
                 // Controls
                 HStack(spacing: 24) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Simülasyon Sayısı: \(Int(runs))").font(.caption).foregroundStyle(Palette.muted)
-                        Slider(value: $runs, in: 100...1500, step: 100)
+                        Slider(value: $runs, in: 100...2000, step: 100)
                             .frame(width: 180)
                     }
 
@@ -392,16 +407,32 @@ struct QuantView: View {
                 } else {
                     Chart {
                         ForEach(rollingPoints) { pt in
-                            LineMark(
+                            AreaMark(
                                 x: .value("Tarih", pt.date),
                                 y: .value("Beklenti", pt.expectancy)
                             )
-                            .foregroundStyle(Palette.mint)
-                            .lineStyle(StrokeStyle(lineWidth: 2))
+                            .foregroundStyle(LinearGradient(colors: [Palette.mint.opacity(0.22), Palette.mint.opacity(0.01)], startPoint: .top, endPoint: .bottom))
 
-                            RuleMark(y: .value("Sıfır", 0))
-                                .foregroundStyle(Palette.line)
+                            LineMark(
+                                x: .value("Tarih", pt.date),
+                                y: .value("Beklenti", pt.expectancy),
+                                series: .value("Katman", "Halo")
+                            )
+                            .foregroundStyle(Palette.mint.opacity(0.24))
+                            .lineStyle(StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round))
+
+                            LineMark(
+                                x: .value("Tarih", pt.date),
+                                y: .value("Beklenti", pt.expectancy),
+                                series: .value("Katman", "Core")
+                            )
+                            .foregroundStyle(Palette.mint)
+                            .lineStyle(StrokeStyle(lineWidth: 2.3, lineCap: .round, lineJoin: .round))
                         }
+
+                        RuleMark(y: .value("Sıfır", 0))
+                            .foregroundStyle(Palette.muted.opacity(0.35))
+                            .lineStyle(StrokeStyle(lineWidth: 0.9, dash: [4, 4]))
                     }
                     .chartYAxis {
                         AxisMarks(position: .leading) { value in
@@ -410,11 +441,12 @@ struct QuantView: View {
                                 if let d = value.as(Double.self) {
                                     Text(Format.money(d, currency: store.accountCurrency))
                                         .font(.system(size: 9, design: .monospaced))
+                                        .foregroundStyle(Palette.muted)
                                 }
                             }
                         }
                     }
-                    .frame(height: 200)
+                    .frame(height: 210)
                 }
             }
         }
@@ -422,43 +454,56 @@ struct QuantView: View {
 
     // MARK: - Risk Concentration Section
     private var riskConcentrationSection: some View {
-        Panel(title: "RİSK VE KÂR KONSANTRASYONU", subtitle: "Performans az sayıda büyük işleme mi bağlı?") {
+        Panel(title: "RİSK VE KÂR KONSANTRASYONU", subtitle: "Performans az sayıda büyük işleme mi bağlı?", accent: Palette.blue) {
             let winners = trades.filter { $0.netPnL > 0 }.map(\.netPnL).sorted(by: >)
             let totalProfit = winners.reduce(0, +)
             let top1Share = totalProfit > 0 && !winners.isEmpty ? (winners[0] / totalProfit) * 100 : 0
             let top3Share = totalProfit > 0 ? (winners.prefix(3).reduce(0, +) / totalProfit) * 100 : 0
 
             HStack(spacing: 24) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("En İyi 1 İşlemin Kârdaki Payı").font(.caption).foregroundStyle(Palette.muted)
-                    Text(Format.percent(top1Share)).font(.title2.weight(.bold))
-                    Text(top1Share > 40 ? "Uyarı: Toplam kârın büyük kısmı tek bir işleme dayanıyor." : "Kâr dağılımı dengeli.")
-                        .font(.caption2).foregroundStyle(top1Share > 40 ? Palette.amber : Palette.muted)
-                }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Palette.field.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+                concentrationCard(
+                    title: "En İyi 1 İşlemin Kârdaki Payı",
+                    share: top1Share,
+                    warningThreshold: 40,
+                    warningText: "Uyarı: Toplam kârın büyük kısmı tek bir işleme dayanıyor.",
+                    healthyText: "Kâr dağılımı dengeli."
+                )
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("En İyi 3 İşlemin Kârdaki Payı").font(.caption).foregroundStyle(Palette.muted)
-                    Text(Format.percent(top3Share)).font(.title2.weight(.bold))
-                    Text(top3Share > 70 ? "Yüksek kâr yoğunlaşması riski." : "İşlemler arasında homojen dağılım.")
-                        .font(.caption2).foregroundStyle(top3Share > 70 ? Palette.amber : Palette.muted)
-                }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Palette.field.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+                concentrationCard(
+                    title: "En İyi 3 İşlemin Kârdaki Payı",
+                    share: top3Share,
+                    warningThreshold: 70,
+                    warningText: "Yüksek kâr yoğunlaşması riski.",
+                    healthyText: "İşlemler arasında homojen dağılım."
+                )
             }
         }
     }
 
-    // MARK: - Helper
-    private func calculateRStability(_ trades: [TradeRecord]) -> Double {
-        let rs = trades.compactMap(\.rMultiple)
-        guard rs.count >= 2 else { return 0 }
-        let mean = rs.reduce(0, +) / Double(rs.count)
-        let variance = rs.map { pow($0 - mean, 2) }.reduce(0, +) / Double(rs.count - 1)
-        return sqrt(variance)
+    private func concentrationCard(title: String, share: Double, warningThreshold: Double, warningText: String, healthyText: String) -> some View {
+        let high = share > warningThreshold
+        let tint = high ? Palette.amber : Palette.mint
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title).font(.caption).foregroundStyle(Palette.muted)
+                Spacer()
+                Text(Format.percent(share)).font(.system(size: 22, weight: .bold, design: .rounded)).monospacedDigit().foregroundStyle(tint)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Palette.raised)
+                    Capsule().fill(LinearGradient(colors: [tint.opacity(0.65), tint], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: max(4, geo.size.width * min(1, max(0, share / 100.0))))
+                }
+            }
+            .frame(height: 6)
+            Text(high ? warningText : healthyText)
+                .font(.caption2).foregroundStyle(high ? Palette.amber : Palette.muted)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.field.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(tint.opacity(0.24), lineWidth: 1))
     }
 
     // MARK: - Disclaimer

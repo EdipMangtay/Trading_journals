@@ -15,9 +15,9 @@ struct AccountRiskView: View {
     @State private var editing: TradingAccount?
     var body: some View {
         let account = store.selectedAccount
-        let risk = WorkstationAnalytics.risk(store.scopedTrades, account: account, calendar: store.preferences.calendar)
+        let risk = store.scopedRisk
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: 24) {
                 HStack {
                     PageHeader(eyebrow: "ACCOUNTS / RISK", title: "Sermayeni tanı. Sınırlarını izle.", subtitle: "Kayıtlı kapanışlar üzerinden hesap bazlı risk değerlendirmesi.")
                     Spacer()
@@ -29,61 +29,107 @@ struct AccountRiskView: View {
                     Spacer()
                     Button("Hesabı ve kuralları düzenle") { editing = account }.buttonStyle(EdgeButtonStyle(prominent: false))
                 }
-                HStack(spacing: 20) {
-                    TerminalMetric(title: "KAYITLI BAKİYE", value: Format.money(risk.balance, currency: account.currency))
-                    TerminalMetric(title: "GERÇEKLEŞEN NET", value: Format.money(risk.realized, currency: account.currency), color: Palette.outcome(risk.realized))
-                    TerminalMetric(title: "KAYIP SINIRINA MESAFE", value: risk.remaining.map { Format.money($0, currency: account.currency) } ?? "Tanımlı değil", color: (risk.remaining ?? 0) < 0 ? Palette.red : Palette.ink)
-                    TerminalMetric(title: "İŞLEM GÜNÜ", value: "\(risk.days) / \(account.rules.minimumDays.map(String.init) ?? "—")")
+                GlassRibbon(accent: Palette.outcome(risk.realized)) {
+                    HStack(spacing: 0) {
+                        TerminalMetric(title: "KAYITLI BAKİYE", value: Format.money(risk.balance, currency: account.currency), subtitle: "Başlangıç " + Format.money(account.startingBalance, currency: account.currency))
+                        riskDivider
+                        TerminalMetric(title: "GERÇEKLEŞEN NET", value: Format.money(risk.realized, currency: account.currency), color: Palette.outcome(risk.realized), subtitle: "Bugün " + Format.money(risk.today, currency: account.currency))
+                        riskDivider
+                        TerminalMetric(title: "KAYIP SINIRINA MESAFE", value: risk.remaining.map { Format.money($0, currency: account.currency) } ?? "Tanımlı değil", color: (risk.remaining ?? 0) < 0 ? Palette.red : Palette.ink, subtitle: account.rules.drawdownMethod)
+                        riskDivider
+                        TerminalMetric(title: "İŞLEM GÜNÜ", value: "\(risk.days) / \(account.rules.minimumDays.map(String.init) ?? "—")", subtitle: "Bugün \(risk.todayCount) giriş")
+                    }
                 }
-                .padding(22)
-                .background(Palette.panel, in: RoundedRectangle(cornerRadius: 16))
-                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Palette.line.opacity(0.85), lineWidth: 1))
-                .overlay(alignment: .top) {
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(LinearGradient(colors: [Palette.mint.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
-                        .frame(height: 1)
-                        .padding(.horizontal, 18)
-                }
-                .shadow(color: .black.opacity(0.08), radius: 14, x: 0, y: 5)
                 .edgeEntrance(delay: 0.03)
                 if risk.unverified { Label("Doğrulanamadı: çıkış zamanı eksik veya kural gün içi equity verisi gerektiriyor. Canlı denetim yapılmaz.", systemImage: "exclamationmark.shield").foregroundStyle(Palette.amber).font(.callout) }
                 if risk.historicalBreach { Label("Kayıtlı kapanışlarda tanımlı kayıp sınırı aşıldı. Geçmiş ihlal sonraki kazançla silinmez.", systemImage: "exclamationmark.triangle").foregroundStyle(Palette.red).font(.callout) }
                 HStack(alignment: .top, spacing: 24) {
-                    Panel(title: "HESAP PERFORMANSI", subtitle: "İşlem kayıtları · Net sonuç") {
-                        EquityChart(points: store.scopedCurve, height: 280)
+                    Panel(title: "HESAP PERFORMANSI", subtitle: "İşlem kayıtları · Net sonuç", accent: Palette.outcome(risk.realized)) {
+                        EquityChart(points: store.scopedCurve, height: 295)
                     }
-                    Panel(title: "KURAL PANOSU") {
-                        riskRow("Kâr hedefi", value: account.rules.profitTarget.map { "\(Format.money(risk.realized, currency: account.currency)) / \(Format.money($0, currency: account.currency))" } ?? "Tanımlanmadı")
-                        riskRow("Bugünkü net sonuç", value: Format.money(risk.today, currency: account.currency))
-                        riskRow("Günlük kalan pay", value: risk.dailyRemaining.map { Format.money($0, currency: account.currency) } ?? "Tanımlanmadı")
-                        riskRow("Drawdown yöntemi", value: account.rules.drawdownMethod)
-                        riskRow("Bakiye alt sınırı", value: risk.floor.map { Format.money($0, currency: account.currency) } ?? "Kullanılamıyor")
-                        riskRow("Bugünkü giriş sayısı", value: "\(risk.todayCount) / \(account.rules.dailyTradeCount.map(String.init) ?? "—")")
-                        riskRow("En iyi gün / toplam kâr", value: risk.consistency.map(Format.percent) ?? "Pozitif net kâr gerekli")
-                        if let cap = account.rules.consistencyPercent { riskRow("Tutarlılık üst sınırı", value: Format.percent(cap) + ((risk.consistency ?? 0) > cap ? " · Aşıldı" : "")) }
-                        riskRow("Risk miktarı sınır aşımı", value: "\(risk.oversizedTrades) işlem")
-                        riskRow("Günlük sayı sınır aşımı", value: "\(risk.dailyCountBreaches) gün")
-                    }.frame(maxWidth: 340)
+                    Panel(title: "KURAL PANOSU", accent: Palette.blue) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            if let target = account.rules.profitTarget, target > 0 {
+                                riskGauge("Kâr hedefi", value: "\(Format.money(risk.realized, currency: account.currency)) / \(Format.money(target, currency: account.currency))", progress: max(0, min(1, risk.realized / target)), tint: Palette.mint)
+                            } else {
+                                riskRow("Kâr hedefi", value: "Tanımlanmadı")
+                            }
+                            if let maxLoss = account.rules.maximumLoss, maxLoss > 0, let rem = risk.remaining {
+                                riskGauge("Kayıp sınırı tamponu", value: Format.money(rem, currency: account.currency), progress: max(0, min(1, rem / maxLoss)), tint: rem < maxLoss * 0.25 ? Palette.red : Palette.mint)
+                            }
+                            if let dailyCap = account.rules.dailyLoss, dailyCap > 0, let dailyRem = risk.dailyRemaining {
+                                riskGauge("Günlük kalan pay", value: Format.money(dailyRem, currency: account.currency), progress: max(0, min(1, dailyRem / dailyCap)), tint: dailyRem < dailyCap * 0.25 ? Palette.red : Palette.blue)
+                            } else {
+                                riskRow("Günlük kalan pay", value: "Tanımlanmadı")
+                            }
+                            riskRow("Bugünkü net sonuç", value: Format.money(risk.today, currency: account.currency), color: Palette.outcome(risk.today))
+                            riskRow("Drawdown yöntemi", value: account.rules.drawdownMethod)
+                            riskRow("Bakiye alt sınırı", value: risk.floor.map { Format.money($0, currency: account.currency) } ?? "Kullanılamıyor")
+                            riskRow("Bugünkü giriş sayısı", value: "\(risk.todayCount) / \(account.rules.dailyTradeCount.map(String.init) ?? "—")")
+                            if let cons = risk.consistency {
+                                let cap = account.rules.consistencyPercent ?? 100
+                                riskGauge("En iyi gün / toplam kâr", value: Format.percent(cons) + (account.rules.consistencyPercent.map { cons > $0 ? " · Aşıldı" : " / \(Format.percent($0))" } ?? ""), progress: max(0, min(1, cons / max(1, cap))), tint: (account.rules.consistencyPercent.map { cons > $0 } ?? false) ? Palette.amber : Palette.blue)
+                            } else {
+                                riskRow("En iyi gün / toplam kâr", value: "Pozitif net kâr gerekli")
+                            }
+                            riskRow("Risk miktarı sınır aşımı", value: "\(risk.oversizedTrades) işlem", color: risk.oversizedTrades > 0 ? Palette.amber : Palette.ink)
+                            riskRow("Günlük sayı sınır aşımı", value: "\(risk.dailyCountBreaches) gün", color: risk.dailyCountBreaches > 0 ? Palette.amber : Palette.ink)
+                        }
+                    }.frame(maxWidth: 350)
                 }
                 Panel(title: "HESAPLARI KARŞILAŞTIR", subtitle: "Para birimleri ayrı tutulur; döviz dönüşümü yapılmaz.") {
                     let tradesByAccount = Dictionary(grouping: store.trades) { store.accountID(for: $0.id) }
                     ForEach(store.workspace.accounts) { a in
-                        let p = a.id == account.id ? store.scopedPerformance : AnalyticsEngine.performance(tradesByAccount[a.id] ?? [])
-                        HStack {
-                            Button(a.name) { do { try store.updateWorkspace { $0.selectedAccountID = a.id } } catch { store.report(error) } }.buttonStyle(.plain).foregroundStyle(Palette.mint)
-                            Text(a.active ? a.category : "Arşiv").foregroundStyle(Palette.muted)
-                            Spacer(); Text("n = \(p.count)"); Text(Format.r(p.averageR)).frame(width: 85, alignment: .trailing)
-                            Text(Format.money(p.netPnL, currency: a.currency)).frame(width: 145, alignment: .trailing)
-                        }.font(.system(size: 12)).monospacedDigit().padding(.vertical, 8)
-                        Divider()
+                        let isSelected = a.id == account.id
+                        let p = isSelected ? store.scopedPerformance : AnalyticsEngine.performance(tradesByAccount[a.id] ?? [])
+                        Button { do { try store.updateWorkspace { $0.selectedAccountID = a.id } } catch { store.report(error) } } label: {
+                            HStack(spacing: 12) {
+                                Circle().fill(isSelected ? Palette.mint : Palette.muted.opacity(0.35)).frame(width: 7, height: 7)
+                                    .shadow(color: isSelected ? Palette.mint.opacity(0.6) : .clear, radius: 3)
+                                Text(a.name).fontWeight(.semibold).foregroundStyle(isSelected ? Palette.mint : Palette.ink)
+                                Badge(text: a.active ? a.category : "Arşiv", color: isSelected ? Palette.mint : Palette.muted)
+                                Spacer()
+                                Text("n = \(p.count)").foregroundStyle(Palette.muted)
+                                Text(Format.r(p.averageR)).foregroundStyle(Palette.outcome(p.averageR ?? 0)).frame(width: 85, alignment: .trailing)
+                                Text(Format.money(p.netPnL, currency: a.currency)).fontWeight(.semibold).foregroundStyle(Palette.outcome(p.netPnL)).frame(width: 145, alignment: .trailing)
+                            }
+                            .font(.system(size: 12)).monospacedDigit()
+                            .padding(.horizontal, 12).padding(.vertical, 10)
+                            .background(isSelected ? Palette.mint.opacity(0.08) : Palette.field.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(isSelected ? Palette.mint.opacity(0.3) : Palette.line.opacity(0.6), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 Text("Yöntem: statik alt sınır = başlangıç − maksimum kayıp. Gün sonu takip = önceki tamamlanmış günlerin en yüksek kapanışı − maksimum kayıp; üst tavan uygulanmaz. Günlük pay = günlük limit + bugünkü gerçekleşen net. Günler seçili saat diliminde çıkış tarihine göre sayılır. Para yatırma/çekme ve açık pozisyonlar dahil değildir. Eksik risk tutarı ihlal olarak varsayılmaz.").font(.caption).foregroundStyle(Palette.muted)
             }.pagePadding()
         }.sheet(item: $editing) { AccountEditor(initial: $0).environment(store) }
     }
-    private func riskRow(_ title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) { Text(title).foregroundStyle(Palette.muted); Text(value).fontWeight(.medium).monospacedDigit() }.font(.system(size: 11)).frame(maxWidth: .infinity, alignment: .leading)
+    private var riskDivider: some View {
+        Rectangle().fill(Palette.line.opacity(0.7)).frame(width: 1, height: 40).padding(.horizontal, 16)
+    }
+    private func riskRow(_ title: String, value: String, color: Color = Palette.ink) -> some View {
+        HStack {
+            Text(title).foregroundStyle(Palette.muted)
+            Spacer(minLength: 8)
+            Text(value).fontWeight(.semibold).foregroundStyle(color).monospacedDigit()
+        }.font(.system(size: 11)).padding(.vertical, 2)
+    }
+    private func riskGauge(_ title: String, value: String, progress: Double, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title).foregroundStyle(Palette.muted)
+                Spacer(minLength: 8)
+                Text(value).fontWeight(.semibold).foregroundStyle(tint).monospacedDigit()
+            }.font(.system(size: 11))
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Palette.raised)
+                    Capsule().fill(LinearGradient(colors: [tint.opacity(0.65), tint], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: max(4, geo.size.width * progress))
+                }
+            }.frame(height: 5)
+        }.padding(.vertical, 2)
     }
 }
 struct AccountEditor: View {

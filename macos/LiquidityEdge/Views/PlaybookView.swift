@@ -30,7 +30,12 @@ struct PlaybookView: View {
     }
 
     var body: some View {
-        let tradesBySetup = Dictionary(grouping: store.scopedTrades) { $0.setupID }
+        let perfBySetup = store.scopedSetupPerformances
+        let bestSetup: (Setup, Performance)? = store.setups
+            .compactMap { s in perfBySetup[s.id].map { (s, $0) } }
+            .filter { $0.1.count > 0 && $0.1.averageR != nil }
+            .max { ($0.1.averageR ?? -.infinity) < ($1.1.averageR ?? -.infinity) }
+        let linkedTotal = store.setups.reduce(0) { $0 + (perfBySetup[$1.id]?.count ?? 0) }
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
                 HStack(alignment: .top, spacing: 24) {
@@ -39,20 +44,56 @@ struct PlaybookView: View {
                     Button { presentEditor(PlaybookDraft()) } label: { Label(L10n.text("New setup"), systemImage: "plus") }
                         .buttonStyle(EdgeButtonStyle())
                 }
+                if !store.setups.isEmpty {
+                    GlassRibbon(accent: Palette.mint) {
+                        HStack(spacing: 0) {
+                            TerminalMetric(title: "TOPLAM MODEL", value: "\(store.setups.count)", subtitle: "\(linkedTotal) bağlı işlem")
+                            Rectangle().fill(Palette.line.opacity(0.7)).frame(width: 1, height: 38).padding(.horizontal, 16)
+                            TerminalMetric(
+                                title: "EN GÜÇLÜ MODEL",
+                                value: bestSetup?.0.name ?? "—",
+                                color: Palette.mint,
+                                subtitle: bestSetup.map { "Ort. \(Format.r($0.1.averageR)) · WR \(Format.percent($0.1.winRate))" } ?? "Henüz yeterli R kaydı yok"
+                            )
+                            Rectangle().fill(Palette.line.opacity(0.7)).frame(width: 1, height: 38).padding(.horizontal, 16)
+                            TerminalMetric(
+                                title: "GENEL UYUM",
+                                value: Format.percent(store.scopedPerformance.compliance),
+                                color: store.scopedPerformance.compliance >= 80 ? Palette.mint : Palette.amber,
+                                subtitle: "Aktif hesap ortalaması"
+                            )
+                        }
+                    }
+                    .edgeEntrance(delay: 0.02)
+                }
                 if store.setups.isEmpty {
                     Panel { EmptyJournal(title: "Codify your first setup.", subtitle: "Write the conditions, invalidation and risk rules that make an execution valid.", actionTitle: "Create setup", action: { presentEditor(PlaybookDraft()) }) }
                 }
                 ForEach(Array(store.setups.enumerated()), id: \.element.id) { index, setup in
-                    let p = AnalyticsEngine.performance(tradesBySetup[setup.id] ?? [])
-                    Panel {
+                    let p = perfBySetup[setup.id] ?? Performance()
+                    let modelAccent = p.count > 0 ? Palette.outcome(p.averageR ?? p.netPnL) : Palette.mint
+                    Panel(accent: modelAccent) {
                         HStack(alignment: .top, spacing: 18) {
                             ZStack {
-                                RoundedRectangle(cornerRadius: 13).fill(Palette.mint.opacity(0.08)).frame(width: 48, height: 48)
-                                Image(systemName: "square.stack.3d.up").font(.system(size: 21, weight: .light)).foregroundStyle(Palette.mint)
+                                RoundedRectangle(cornerRadius: 13).fill(modelAccent.opacity(0.11)).frame(width: 48, height: 48)
+                                RoundedRectangle(cornerRadius: 13).strokeBorder(modelAccent.opacity(0.26), lineWidth: 1).frame(width: 48, height: 48)
+                                Image(systemName: "square.stack.3d.up").font(.system(size: 21, weight: .light)).foregroundStyle(modelAccent)
                             }.accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(String(format: "MODEL %02d", index + 1)).font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(1.5).foregroundStyle(Palette.mint)
-                                Text(verbatim: setup.name).font(.system(size: 23, weight: .semibold)).tracking(-0.5).fixedSize(horizontal: false, vertical: true)
+                            VStack(alignment: .leading, spacing: 7) {
+                                HStack(spacing: 8) {
+                                    Text(String(format: "MODEL %02d", index + 1)).font(.system(size: 10, weight: .bold, design: .monospaced)).tracking(1.5).foregroundStyle(modelAccent)
+                                    if let book = setup.playbook {
+                                        let ruleCount = [book.conditions, book.entryRules, book.invalidationRules, book.targetRules, book.riskRules].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+                                        if ruleCount > 0 {
+                                            Text("\(ruleCount)/5 kural")
+                                                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                                                .foregroundStyle(Palette.muted)
+                                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                                .background(Palette.raised.opacity(0.7), in: Capsule())
+                                        }
+                                    }
+                                }
+                                Text(verbatim: setup.name).font(.system(size: 23, weight: .bold)).tracking(-0.5).fixedSize(horizontal: false, vertical: true)
                                 if !setup.summary.isEmpty { Text(verbatim: setup.summary).font(.system(size: 12)).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true) }
                             }
                             Spacer(minLength: 0)
@@ -66,12 +107,15 @@ struct PlaybookView: View {
                             }
                         }
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 20, alignment: .leading), count: 5), alignment: .leading, spacing: 20) {
-                            stat("SAMPLES", "\(p.count)")
-                            stat("WIN RATE", Format.percent(p.winRate))
-                            stat("AVG R", Format.r(p.averageR))
-                            stat("EXPECTANCY", Format.money(p.expectancy, currency: store.accountCurrency))
-                            stat("COMPLIANCE", Format.percent(p.compliance))
-                        }.padding(17).background(Palette.raised.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
+                            stat("SAMPLES", "\(p.count)", color: Palette.ink)
+                            stat("WIN RATE", p.count == 0 ? "—" : Format.percent(p.winRate), color: p.winRate >= 50 ? Palette.mint : Palette.ink)
+                            stat("AVG R", Format.r(p.averageR), color: p.averageR.map(Palette.outcome) ?? Palette.muted)
+                            stat("EXPECTANCY", p.count == 0 ? "—" : Format.money(p.expectancy, currency: store.accountCurrency), color: p.count == 0 ? Palette.muted : Palette.outcome(p.expectancy))
+                            stat("COMPLIANCE", p.count == 0 ? "—" : Format.percent(p.compliance), color: p.count == 0 ? Palette.muted : (p.compliance >= 80 ? Palette.mint : Palette.amber))
+                        }
+                        .padding(17)
+                        .background(Palette.field.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.line.opacity(0.65), lineWidth: 1))
                         if let book = setup.playbook {
                             let idealImages = (try? BackupService.decodeImages(book.idealImagesData)) ?? []
                             DisclosureGroup {
@@ -116,10 +160,10 @@ struct PlaybookView: View {
             Button(L10n.text("Delete setup"), role: .destructive) { if let setup = deleting { do { try store.deleteSetup(setup) } catch { store.report(error) } }; deleting = nil }
         } message: { Text(L10n.text("Linked trades remain in your journal and become Unassigned. The playbook and its ideal images are deleted.")) }
     }
-    private func stat(_ label: String, _ value: String) -> some View {
+    private func stat(_ label: String, _ value: String, color: Color = Palette.ink) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(L10n.text(label)).font(.system(size: 10, weight: .medium)).tracking(0.4).foregroundStyle(Palette.muted)
-            Text(verbatim: value).font(.system(size: 20, weight: .semibold, design: .rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+            Text(L10n.text(label)).font(.system(size: 9, weight: .semibold, design: .monospaced)).tracking(0.6).foregroundStyle(Palette.muted)
+            Text(verbatim: value).font(.system(size: 21, weight: .bold, design: .rounded)).foregroundStyle(color).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
         }.frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
     }
     private func textBlock(_ label: String, _ text: String) -> some View {

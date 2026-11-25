@@ -6,6 +6,10 @@ struct JournalError: LocalizedError {
     var message: String
     var errorDescription: String? { message }
 }
+private final class ParallelBuffer<T>: @unchecked Sendable {
+    var value: T
+    init(_ value: T) { self.value = value }
+}
 @MainActor @Observable final class JournalStore {
     let container: ModelContainer
     let context: ModelContext
@@ -34,6 +38,16 @@ struct JournalError: LocalizedError {
     private(set) var scopedCurve: [CurvePoint] = []
     private(set) var scopedTodayPnL = 0.0
     private(set) var scopedClassifications: [Classification: Int] = [:]
+    private(set) var scopedComparisons: [Comparison] = []
+    private(set) var scopedEdgeMatrix: [EdgeCombination] = []
+    private(set) var scopedSessionGroups: [MetricGroup] = []
+    private(set) var scopedMonthlyProcess: [MonthlyProcess] = []
+    private(set) var scopedMistakes: [MetricGroup] = []
+    private(set) var scopedHeatmapBuckets: [Int: Performance] = [:]
+    private(set) var scopedSetupPerformances: [UUID?: Performance] = [:]
+    private(set) var scopedRisk = RiskSnapshot(balance: 50000, realized: 0, today: 0, days: 0, todayCount: 0, floor: nil, remaining: nil, dailyRemaining: nil, consistency: nil, unverified: false, historicalBreach: false, oversizedTrades: 0, dailyCountBreaches: 0)
+    private(set) var scopedUnderwater = WorkstationAnalytics.Underwater()
+    private(set) var scopedRStability = 0.0
     @ObservationIgnored private var accountsByID: [UUID: TradingAccount] = [:]
     var accountCurrency: String { selectedAccount.currency }
     func accountID(for tradeID: UUID) -> UUID { workspace.assignments[tradeID] ?? TradingAccount.legacyID }
@@ -43,23 +57,93 @@ struct JournalError: LocalizedError {
         let active = accountsByID[workspace.selectedAccountID] ?? TradingAccount(id: TradingAccount.legacyID, name: "Eski günlük", currency: preferences.currency, startingBalance: preferences.accountSize)
         selectedAccount = active
         let targetID = active.id
+        let filtered: [TradeRecord]
         if workspace.accounts.count <= 1 && targetID == TradingAccount.legacyID && workspace.assignments.values.allSatisfy({ $0 == targetID }) {
-            scopedTrades = trades
+            filtered = trades
         } else {
-            scopedTrades = trades.filter { (workspace.assignments[$0.id] ?? TradingAccount.legacyID) == targetID }
+            filtered = trades.filter { (workspace.assignments[$0.id] ?? TradingAccount.legacyID) == targetID }
         }
-        scopedPerformance = AnalyticsEngine.performance(scopedTrades)
-        scopedCurve = AnalyticsEngine.curve(scopedTrades)
+        scopedTrades = filtered
         let cal = preferences.calendar
         let now = Date()
-        var todaySum = 0.0
-        var counts: [Classification: Int] = [:]
-        for t in scopedTrades {
-            counts[t.classification, default: 0] += 1
-            if cal.isDate(t.date, inSameDayAs: now) { todaySum += t.netPnL }
+        let ordered = AnalyticsEngine.ordered(filtered)
+
+        // Fan out independent O(N) analytics across Apple Silicon performance cores when dataset warrants parallelism.
+        let perfBox = ParallelBuffer(Performance())
+        let curveBox = ParallelBuffer([CurvePoint]())
+        let comparisonsBox = ParallelBuffer([Comparison]())
+        let edgesBox = ParallelBuffer([EdgeCombination]())
+        let sessionsBox = ParallelBuffer([MetricGroup]())
+        let monthlyBox = ParallelBuffer([MonthlyProcess]())
+        let mistakesBox = ParallelBuffer([MetricGroup]())
+        let heatmapBox = ParallelBuffer([Int: Performance]())
+        let setupPerfsBox = ParallelBuffer([UUID?: Performance]())
+        let riskBox = ParallelBuffer(RiskSnapshot(balance: active.startingBalance, realized: 0, today: 0, days: 0, todayCount: 0, floor: nil, remaining: nil, dailyRemaining: nil, consistency: nil, unverified: false, historicalBreach: false, oversizedTrades: 0, dailyCountBreaches: 0))
+        let underwaterBox = ParallelBuffer(WorkstationAnalytics.Underwater())
+        let rStabBox = ParallelBuffer(0.0)
+        let todayBox = ParallelBuffer(0.0)
+        let countsBox = ParallelBuffer([Classification: Int]())
+
+        let runTask: @Sendable (Int) -> Void = { task in
+            switch task {
+            case 0:
+                perfBox.value = AnalyticsEngine.performance(ordered)
+                rStabBox.value = AnalyticsEngine.rStandardDeviation(ordered)
+            case 1:
+                curveBox.value = AnalyticsEngine.curve(ordered)
+            case 2:
+                comparisonsBox.value = AnalyticsEngine.comparisons(ordered)
+            case 3:
+                edgesBox.value = AnalyticsEngine.edgeMatrix(ordered)
+            case 4:
+                sessionsBox.value = AnalyticsEngine.groups(ordered, by: .session, calendar: cal)
+                monthlyBox.value = AnalyticsEngine.monthlyProcess(ordered, calendar: cal)
+            case 5:
+                mistakesBox.value = AnalyticsEngine.mistakes(ordered)
+                setupPerfsBox.value = AnalyticsEngine.setupPerformances(ordered)
+            case 6:
+                heatmapBox.value = AnalyticsEngine.heatmapBuckets(ordered, calendar: cal)
+            case 7:
+                riskBox.value = WorkstationAnalytics.risk(ordered, account: active, calendar: cal, now: now)
+                underwaterBox.value = WorkstationAnalytics.underwater(ordered)
+            default:
+                var localToday = 0.0
+                var localCounts: [Classification: Int] = [:]
+                for t in ordered {
+                    localCounts[t.classification, default: 0] += 1
+                    if cal.isDate(t.date, inSameDayAs: now) { localToday += t.netPnL }
+                }
+                todayBox.value = localToday
+                countsBox.value = localCounts
+            }
         }
-        scopedTodayPnL = todaySum
-        scopedClassifications = counts
+
+        if ordered.count >= 48 && HardwareProfile.coreCount >= 4 {
+            DispatchQueue.concurrentPerform(iterations: 9, execute: runTask)
+        } else {
+            for i in 0..<9 { runTask(i) }
+        }
+
+        scopedPerformance = perfBox.value
+        scopedCurve = curveBox.value
+        scopedTodayPnL = todayBox.value
+        scopedClassifications = countsBox.value
+        scopedComparisons = comparisonsBox.value
+        scopedEdgeMatrix = edgesBox.value
+        scopedSessionGroups = sessionsBox.value
+        scopedMonthlyProcess = monthlyBox.value
+        scopedMistakes = mistakesBox.value
+        scopedHeatmapBuckets = heatmapBox.value
+        scopedSetupPerformances = setupPerfsBox.value
+        scopedRisk = riskBox.value
+        scopedUnderwater = underwaterBox.value
+        scopedRStability = rStabBox.value
+
+        // Asynchronously warm search index in the background on Apple Silicon efficiency/performance cores
+        let snapshot = ordered
+        DispatchQueue.global(qos: .utility).async {
+            TradeSearch.prewarm(snapshot)
+        }
     }
     func updateWorkspace(_ change: (inout WorkspaceState) throws -> Void) throws {
         var next = workspace; try change(&next); try next.validate(tradeIDs: Set(trades.map(\.id)))
@@ -122,7 +206,35 @@ struct JournalError: LocalizedError {
             workspace = try JSONDecoder().decode(WorkspaceState.self, from: document.payload)
         }
         let fetched = try context.fetch(FetchDescriptor<Trade>(sortBy: [SortDescriptor(\.date, order: .reverse)]))
-        let decoded = try fetched.map { try $0.record() }
+        let decoded: [TradeRecord]
+        if fetched.count >= 64 && HardwareProfile.coreCount >= 4 {
+            // Copy raw Data blobs on MainActor, then decode TradeRecord JSON in parallel across Apple Silicon cores
+            let payloads = fetched.map(\.recordData)
+            let rawResults = UnsafeMutableBufferPointer<Result<TradeRecord, Error>?>.allocate(capacity: payloads.count)
+            rawResults.initialize(repeating: nil)
+            defer { rawResults.deinitialize(); rawResults.deallocate() }
+            let box = ParallelBuffer(rawResults)
+            let workers = min(HardwareProfile.coreCount, max(1, payloads.count / 16))
+            let chunk = (payloads.count + workers - 1) / workers
+            DispatchQueue.concurrentPerform(iterations: workers) { w in
+                let start = w * chunk
+                let end = min(payloads.count, start + chunk)
+                guard start < end else { return }
+                let decoder = JSONDecoder()
+                let buffer = box.value
+                for i in start..<end {
+                    buffer[i] = Result { try decoder.decode(TradeRecord.self, from: payloads[i]) }
+                }
+            }
+            var parsed: [TradeRecord] = []
+            parsed.reserveCapacity(payloads.count)
+            for i in 0..<payloads.count {
+                parsed.append(try rawResults[i]!.get())
+            }
+            decoded = parsed
+        } else {
+            decoded = try fetched.map { try $0.record() }
+        }
         models = Dictionary(uniqueKeysWithValues: fetched.map { ($0.id, $0) }); trades = decoded
         setups = try context.fetch(FetchDescriptor<Setup>(sortBy: [SortDescriptor(\.name)]))
         instruments = try context.fetch(FetchDescriptor<Instrument>(sortBy: [SortDescriptor(\.symbol)]))

@@ -68,19 +68,7 @@ struct RootView: View {
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .background {
-                ZStack(alignment: .topLeading) {
-                    Palette.canvas
-                    RadialGradient(
-                        colors: [Palette.mint.opacity(0.045), Palette.blue.opacity(0.015), .clear],
-                        center: .topLeading,
-                        startRadius: 20,
-                        endRadius: 680
-                    )
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-                }
-            }
+            .background { TerminalBackdrop() }
         }.background(Palette.canvas).foregroundStyle(Palette.ink).tint(Palette.mint)
         .animation(animation, value: collapsed)
         .sheet(item: $activeSheet) { sheet in
@@ -190,7 +178,14 @@ struct RootView: View {
                             .font(.system(size: 10, weight: .semibold, design: .monospaced))
                             .foregroundStyle(isSelected ? Palette.mint : Palette.muted)
                             .padding(.horizontal, 6).padding(.vertical, 3)
-                            .background(isSelected ? Palette.mint.opacity(0.14) : Palette.raised, in: RoundedRectangle(cornerRadius: 5))
+                            .background(isSelected ? Palette.mint.opacity(0.16) : Palette.raised, in: RoundedRectangle(cornerRadius: 5))
+                            .contentTransition(.numericText())
+                    } else if item == .playbook && !store.setups.isEmpty {
+                        Text(store.setups.count.description)
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(isSelected ? Palette.mint : Palette.muted)
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(isSelected ? Palette.mint.opacity(0.16) : Palette.raised, in: RoundedRectangle(cornerRadius: 5))
                             .contentTransition(.numericText())
                     }
                 }
@@ -217,58 +212,78 @@ struct RootView: View {
     }
     private var topbar: some View {
         HStack(spacing: 13) {
-            Image(systemName: page.icon).foregroundStyle(Palette.mint).font(.system(size: 14, weight: .medium))
-                .frame(width: 31, height: 31).background(Palette.mint.opacity(0.065), in: RoundedRectangle(cornerRadius: 9))
+            Image(systemName: page.icon).foregroundStyle(Palette.mint).font(.system(size: 14, weight: .semibold))
+                .frame(width: 32, height: 32)
+                .background(LinearGradient(colors: [Palette.mint.opacity(0.15), Palette.mint.opacity(0.05)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 9))
+                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Palette.mint.opacity(0.24), lineWidth: 1))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
-                Text("ÇALIŞMA ALANI").font(.system(size: 8, weight: .semibold)).tracking(1.1).foregroundStyle(Palette.muted)
-                Text(L10n.text(page.rawValue)).font(.system(size: 13, weight: .semibold)).accessibilityAddTraits(.isHeader)
+                Text("ÇALIŞMA ALANI").font(.system(size: 8, weight: .bold, design: .monospaced)).tracking(1.3).foregroundStyle(Palette.muted)
+                Text(L10n.text(page.rawValue)).font(.system(size: 14, weight: .semibold)).accessibilityAddTraits(.isHeader)
             }
             Spacer(minLength: 8)
             if !store.scopedTrades.isEmpty {
                 let net = store.scopedPerformance.netPnL
                 let today = store.scopedTodayPnL
+                let wr = store.scopedPerformance.winRate
                 ViewThatFits(in: .horizontal) {
-                    topbarTelemetryButton(net: net, today: abs(today) >= 0.01 ? today : nil)
-                    topbarTelemetryButton(net: net, today: nil)
+                    topbarTelemetryButton(net: net, today: abs(today) >= 0.01 ? today : nil, winRate: wr)
+                    topbarTelemetryButton(net: net, today: abs(today) >= 0.01 ? today : nil, winRate: nil)
+                    topbarTelemetryButton(net: net, today: nil, winRate: nil)
                     EmptyView()
                 }
             }
             AccountPicker()
-            Rectangle().fill(Palette.line).frame(width: 1, height: 21).padding(.horizontal, 3)
+            Rectangle().fill(Palette.line.opacity(0.9)).frame(width: 1, height: 22).padding(.horizontal, 3)
             Button(action: showSearch) {
-                HStack(spacing: 9) {
+                HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
-                    Text(L10n.text("Search"))
+                    Text(L10n.text("Search")).lineLimit(1)
                     Text("⌘K").font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.muted)
-                        .padding(.horizontal, 4).padding(.vertical, 2).background(Palette.field, in: RoundedRectangle(cornerRadius: 3))
+                        .padding(.horizontal, 5).padding(.vertical, 2).background(Palette.field, in: RoundedRectangle(cornerRadius: 4))
                 }
-            }.buttonStyle(EdgeButtonStyle(prominent: false)).help(L10n.text("Search & Commands"))
-            Button { activeSheet = .tradeEditor(EditorRoute()) } label: { Label(L10n.text("New trade"), systemImage: "plus") }.buttonStyle(EdgeButtonStyle()).help("Yeni işlem · ⌘N")
-        }.padding(.horizontal, 28).frame(height: 68).background(Palette.panel.opacity(0.3))
-            .overlay(alignment: .bottom) { Rectangle().fill(Palette.line.opacity(0.65)).frame(height: 1) }
+                .fixedSize(horizontal: true, vertical: false)
+            }.buttonStyle(EdgeButtonStyle(prominent: false)).fixedSize(horizontal: true, vertical: false).help(L10n.text("Search & Commands"))
+            Button { activeSheet = .tradeEditor(EditorRoute()) } label: { Label(L10n.text("New trade"), systemImage: "plus").fixedSize(horizontal: true, vertical: false) }.buttonStyle(EdgeButtonStyle()).fixedSize(horizontal: true, vertical: false).help("Yeni işlem · ⌘N")
+        }
+        .padding(.horizontal, 28).frame(height: 68)
+        .background(.ultraThinMaterial)
+        .background(Palette.panel.opacity(0.58))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(LinearGradient(colors: [Palette.mint.opacity(0.18), Palette.line.opacity(0.75), Palette.line.opacity(0.5)], startPoint: .leading, endPoint: .trailing))
+                .frame(height: 1)
+        }
     }
-    private func topbarTelemetryButton(net: Double, today: Double?) -> some View {
+    private func topbarTelemetryButton(net: Double, today: Double?, winRate: Double?) -> some View {
         Button { page = .accounts } label: {
             HStack(spacing: 7) {
                 Circle().fill(Palette.outcome(net)).frame(width: 6, height: 6)
-                Text("NET").font(.system(size: 8, weight: .semibold, design: .monospaced)).foregroundStyle(Palette.muted)
+                    .shadow(color: Palette.outcome(net).opacity(0.55), radius: 3)
+                Text("NET").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(Palette.muted)
                 Text(verbatim: Format.money(net, currency: store.accountCurrency))
-                    .font(.system(size: 11, weight: .semibold, design: .rounded)).monospacedDigit()
+                    .font(.system(size: 11, weight: .bold, design: .rounded)).monospacedDigit()
                     .foregroundStyle(Palette.outcome(net))
                 if let today {
                     Rectangle().fill(Palette.line).frame(width: 1, height: 12)
-                    Text("BUGÜN").font(.system(size: 8, weight: .semibold, design: .monospaced)).foregroundStyle(Palette.muted)
+                    Text("BUGÜN").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(Palette.muted)
                     Text(verbatim: (today > 0 ? "+" : "") + Format.money(today, currency: store.accountCurrency))
-                        .font(.system(size: 11, weight: .semibold, design: .rounded)).monospacedDigit()
+                        .font(.system(size: 11, weight: .bold, design: .rounded)).monospacedDigit()
                         .foregroundStyle(Palette.outcome(today))
+                }
+                if let winRate {
+                    Rectangle().fill(Palette.line).frame(width: 1, height: 12)
+                    Text("WR").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(Palette.muted)
+                    Text(verbatim: Format.percent(winRate))
+                        .font(.system(size: 11, weight: .semibold, design: .rounded)).monospacedDigit()
+                        .foregroundStyle(Palette.ink)
                 }
             }
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, 11).padding(.vertical, 6)
-            .background(Palette.field.opacity(0.85), in: Capsule())
-            .overlay(Capsule().strokeBorder(Palette.line.opacity(0.85), lineWidth: 1))
+            .padding(.horizontal, 12).padding(.vertical, 6.5)
+            .background(Palette.field.opacity(0.88), in: Capsule())
+            .overlay(Capsule().strokeBorder(Palette.line.opacity(0.9), lineWidth: 1))
         }
         .buttonStyle(.plain)
         .help("Hesaplar ve Risk özetine git")

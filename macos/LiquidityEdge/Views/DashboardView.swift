@@ -31,7 +31,7 @@ struct DashboardView: View {
         let counts = classificationCounts(for: trades)
         let shouldAnimate = animationsEnabled && !reduceMotion
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: 24) {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 16) {
                         headerTitle
@@ -48,59 +48,58 @@ struct DashboardView: View {
                         telemetryStrip(p)
                     }
                 }
-                HStack(spacing: 0) {
-                    TerminalMetric(
-                        title: "NET SONUÇ",
-                        value: trades.isEmpty ? "—" : Format.money(p.netPnL, currency: store.accountCurrency),
-                        color: Palette.outcome(p.netPnL),
-                        subtitle: trades.isEmpty ? "" : "Beklenti " + Format.money(p.expectancy, currency: store.accountCurrency)
-                    )
-                    kpiDivider
-                    TerminalMetric(
-                        title: "ORTALAMA R",
-                        value: Format.r(p.averageR),
-                        color: Palette.mint,
-                        subtitle: p.rCount == 0 ? "" : "Toplam " + Format.r(p.totalR)
-                    )
-                    kpiDivider
-                    TerminalMetric(
-                        title: "KAZANMA ORANI",
-                        value: trades.isEmpty ? "—" : Format.percent(p.winRate),
-                        subtitle: {
-                            guard !trades.isEmpty else { return "" }
-                            let be = max(0, p.count - p.wins - p.losses)
-                            return be > 0 ? "\(p.wins)W · \(p.losses)L · \(be)BE" : "\(p.wins)W · \(p.losses)L"
-                        }()
-                    )
-                    kpiDivider
-                    TerminalMetric(
-                        title: "KÂR FAKTÖRÜ",
-                        value: trades.isEmpty ? "—" : Format.factor(p),
-                        subtitle: p.payoffRatio.map { "Payoff " + Format.number($0) } ?? ""
-                    )
-                    kpiDivider
-                    TerminalMetric(
-                        title: "ÖRNEKLEM",
-                        value: "n = \(p.count)",
-                        subtitle: trades.isEmpty ? "" : "Uyum " + Format.percent(p.compliance)
-                    )
-                }
-                .padding(.horizontal, 22).padding(.vertical, 18)
-                .background(
-                    ZStack(alignment: .topLeading) {
-                        RoundedRectangle(cornerRadius: 15).fill(Palette.panel.opacity(0.75))
-                        LinearGradient(colors: [Palette.outcome(p.netPnL).opacity(trades.isEmpty ? 0 : 0.045), .clear], startPoint: .leading, endPoint: .center)
-                            .clipShape(RoundedRectangle(cornerRadius: 15))
+                GlassRibbon(accent: Palette.outcome(p.netPnL), showAccentGlow: !trades.isEmpty) {
+                    HStack(spacing: 0) {
+                        TerminalMetric(
+                            title: "NET SONUÇ",
+                            value: trades.isEmpty ? "—" : Format.money(p.netPnL, currency: store.accountCurrency),
+                            color: Palette.outcome(p.netPnL),
+                            subtitle: trades.isEmpty ? "" : "Beklenti " + Format.money(p.expectancy, currency: store.accountCurrency)
+                        )
+                        kpiDivider
+                        TerminalMetric(
+                            title: "ORTALAMA R",
+                            value: Format.r(p.averageR),
+                            color: Palette.outcome(p.averageR ?? 0),
+                            subtitle: p.rCount == 0 ? "" : "Toplam " + Format.r(p.totalR)
+                        )
+                        kpiDivider
+                        VStack(alignment: .leading, spacing: 5) {
+                            TerminalMetric(
+                                title: "KAZANMA ORANI",
+                                value: trades.isEmpty ? "—" : Format.percent(p.winRate),
+                                subtitle: {
+                                    guard !trades.isEmpty else { return "" }
+                                    let be = max(0, p.count - p.wins - p.losses)
+                                    return be > 0 ? "\(p.wins)W · \(p.losses)L · \(be)BE" : "\(p.wins)W · \(p.losses)L"
+                                }()
+                            )
+                            if !trades.isEmpty {
+                                miniRatioBar(ratio: p.winRate / 100.0, primary: Palette.mint, secondary: Palette.red.opacity(0.65))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        kpiDivider
+                        TerminalMetric(
+                            title: "KÂR FAKTÖRÜ",
+                            value: trades.isEmpty ? "—" : Format.factor(p),
+                            color: (p.profitFactor ?? 0) >= 2.0 ? Palette.mint : Palette.ink,
+                            subtitle: p.payoffRatio.map { "Payoff " + Format.number($0) } ?? ""
+                        )
+                        kpiDivider
+                        VStack(alignment: .leading, spacing: 5) {
+                            TerminalMetric(
+                                title: "ÖRNEKLEM",
+                                value: "n = \(p.count)",
+                                subtitle: trades.isEmpty ? "" : "Uyum " + Format.percent(p.compliance)
+                            )
+                            if !trades.isEmpty {
+                                miniRatioBar(ratio: p.compliance / 100.0, primary: p.compliance >= 80 ? Palette.mint : Palette.amber, secondary: Palette.raised)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                )
-                .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(Palette.line.opacity(0.85), lineWidth: 1))
-                .overlay(alignment: .top) {
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(LinearGradient(colors: [Palette.mint.opacity(0.32), Palette.specular.opacity(0.03)], startPoint: .leading, endPoint: .trailing))
-                        .frame(height: 1)
-                        .padding(.horizontal, 18)
                 }
-                .shadow(color: .black.opacity(0.06), radius: 12, x: 0, y: 4)
                 .edgeEntrance(delay: 0.03)
                 ViewThatFits(in: .horizontal) {
                     HStack { periodPicker; Spacer(); unitPicker }
@@ -140,7 +139,9 @@ struct DashboardView: View {
                         case "Rolling":
                             Panel(title: "HAREKETLİ KAZANMA ORANI", subtitle: "Son 20 işlem · İlk pencerelerde mevcut örneklem") { EquityChart(points: Array(curve.dropFirst()), mode: .rolling, height: 190) }
                         case "Timing":
-                            Panel(title: "ZAMANLAMA / ORTALAMA R", subtitle: store.preferences.timezone) { PerformanceHeatmap(trades: trades, calendar: store.preferences.calendar) }
+                            Panel(title: "ZAMANLAMA / ORTALAMA R", subtitle: store.preferences.timezone) {
+                                PerformanceHeatmap(trades: trades, calendar: store.preferences.calendar, precomputedBuckets: isAllTime ? store.scopedHeatmapBuckets : nil)
+                            }
                         case "Recent":
                             Panel(title: "SON İŞLEMLER", subtitle: "Bir kayıt seçerek ayrıntıları incele") { TradeRows(trades: Array(trades.prefix(6)), openTrade: openTrade) }
                         case "Metrics":
@@ -205,19 +206,30 @@ struct DashboardView: View {
                     Text("Sermaye gelişimi").font(.system(size: 18, weight: .semibold))
                 }
                 Spacer()
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    let roi = store.selectedAccount.startingBalance > 0 ? (p.netPnL / store.selectedAccount.startingBalance) * 100 : 0
+                    if abs(roi) >= 0.05 {
+                        Text(verbatim: (roi > 0 ? "+" : "") + Format.percent(roi))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundStyle(Palette.outcome(roi))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(Palette.outcome(roi).opacity(0.11), in: Capsule())
+                            .overlay(Capsule().strokeBorder(Palette.outcome(roi).opacity(0.24), lineWidth: 0.8))
+                    }
                     if p.maxDrawdown > 0 {
                         Text("MAX DD −\(Format.money(p.maxDrawdown, currency: store.accountCurrency))")
                             .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(Palette.red.opacity(0.9))
+                            .foregroundStyle(Palette.red.opacity(0.95))
                             .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(Palette.red.opacity(0.08), in: Capsule())
+                            .background(Palette.red.opacity(0.09), in: Capsule())
+                            .overlay(Capsule().strokeBorder(Palette.red.opacity(0.2), lineWidth: 0.8))
                     }
                     Text("NET / \(L10n.text(period))")
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced)).tracking(1.4)
+                        .font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(1.3)
                         .foregroundStyle(Palette.mint)
                         .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Palette.mint.opacity(0.1), in: Capsule())
+                        .background(Palette.mint.opacity(0.11), in: Capsule())
+                        .overlay(Capsule().strokeBorder(Palette.mint.opacity(0.24), lineWidth: 0.8))
                 }
             }
             EquityChart(points: curve, mode: mode, accountSize: store.selectedAccount.startingBalance, height: 315)
@@ -228,18 +240,29 @@ struct DashboardView: View {
             }.font(.system(size: 10))
         }
         .padding(22)
-        .background(Palette.panel, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Palette.line.opacity(0.85), lineWidth: 1))
+        .background(Palette.panelGradient, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Palette.line.opacity(0.88), lineWidth: 1))
         .overlay(alignment: .top) {
             RoundedRectangle(cornerRadius: 1)
-                .fill(LinearGradient(colors: [Palette.mint.opacity(0.38), Palette.mint.opacity(0.02)], startPoint: .leading, endPoint: .trailing))
+                .fill(LinearGradient(colors: [Palette.mint.opacity(0.45), Palette.cyan.opacity(0.14), .clear], startPoint: .leading, endPoint: .trailing))
                 .frame(height: 1.5)
                 .padding(.horizontal, 18)
         }
-        .shadow(color: Color.black.opacity(0.06), radius: 14, x: 0, y: 6)
+        .shadow(color: Color.black.opacity(0.11), radius: 18, x: 0, y: 7)
+    }
+    private func miniRatioBar(ratio: Double, primary: Color, secondary: Color) -> some View {
+        let clamped = min(1, max(0, ratio))
+        return GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(secondary.opacity(0.45))
+                Capsule().fill(primary).frame(width: max(3, geo.size.width * clamped))
+            }
+        }
+        .frame(height: 3)
+        .padding(.top, 2)
     }
     private var kpiDivider: some View {
-        Rectangle().fill(Palette.line.opacity(0.65)).frame(width: 1, height: 38).padding(.horizontal, 16)
+        Rectangle().fill(Palette.line.opacity(0.7)).frame(width: 1, height: 42).padding(.horizontal, 16)
     }
     private func processRail(_ p: Performance, counts: [Classification: Int], total: Int) -> some View {
         let ordered: [Classification] = [.validWinner, .validLoser, .invalidWinner, .invalidLoser, .breakeven]

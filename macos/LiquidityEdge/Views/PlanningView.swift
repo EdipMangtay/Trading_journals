@@ -23,7 +23,7 @@ struct PlanningView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: 24) {
                 headerView
 
                 SegmentedTabs(
@@ -104,26 +104,29 @@ struct PlanningView: View {
                 }
             }
             .padding(14)
-            .background(Palette.panel, in: RoundedRectangle(cornerRadius: 10))
+            .background(Palette.panelGradient, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.line.opacity(0.85), lineWidth: 1))
 
             HStack(alignment: .top, spacing: 20) {
                 VStack(spacing: 18) {
-                    Panel(title: "PİYASA SENARYOLARI VE YÖN TAHMİNİ (BIAS)") {
+                    Panel(title: "PİYASA SENARYOLARI VE YÖN TAHMİNİ (BIAS)", accent: Palette.mint) {
                         TextEditor(text: $currentPlan.scenarios)
                             .font(.system(size: 13))
                             .frame(height: 112)
                             .scrollContentBackground(.hidden)
-                            .padding(8)
-                            .background(Palette.field.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                            .padding(10)
+                            .background(Palette.field.opacity(0.65), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line.opacity(0.75), lineWidth: 1))
                     }
 
-                    Panel(title: "ÖNEMLİ LİKİDİTE ALANLARI (DRAW ON LIQUIDITY)") {
+                    Panel(title: "ÖNEMLİ LİKİDİTE ALANLARI (DRAW ON LIQUIDITY)", accent: Palette.blue) {
                         TextEditor(text: $currentPlan.liquidity)
                             .font(.system(size: 13))
                             .frame(height: 112)
                             .scrollContentBackground(.hidden)
-                            .padding(8)
-                            .background(Palette.field.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                            .padding(10)
+                            .background(Palette.field.opacity(0.65), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line.opacity(0.75), lineWidth: 1))
                     }
 
                     Panel(title: "ODAK ENSTRÜMANLARI VE SEANSLAR") {
@@ -133,22 +136,24 @@ struct PlanningView: View {
                 }
 
                 VStack(spacing: 18) {
-                    Panel(title: "STRATEJİ ODAĞI (SETUP ODAĞI)") {
+                    Panel(title: "STRATEJİ ODAĞI (SETUP ODAĞI)", accent: Palette.cyan) {
                         TextEditor(text: $currentPlan.focus)
                             .font(.system(size: 13))
                             .frame(height: 112)
                             .scrollContentBackground(.hidden)
-                            .padding(8)
-                            .background(Palette.field.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                            .padding(10)
+                            .background(Palette.field.opacity(0.65), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line.opacity(0.75), lineWidth: 1))
                     }
 
-                    Panel(title: "GÜNLÜK RİSK SINIRLARI VE STOP SEVİYELERİ") {
+                    Panel(title: "GÜNLÜK RİSK SINIRLARI VE STOP SEVİYELERİ", accent: Palette.amber) {
                         TextEditor(text: $currentPlan.limits)
                             .font(.system(size: 13))
                             .frame(height: 112)
                             .scrollContentBackground(.hidden)
-                            .padding(8)
-                            .background(Palette.field.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                            .padding(10)
+                            .background(Palette.field.opacity(0.65), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line.opacity(0.75), lineWidth: 1))
                     }
 
                     Panel(title: "SEANS HEDEFLERİ VE DİSİPLİN KURALLARI") {

@@ -18,7 +18,7 @@ struct SettingsView: View {
     @State private var message: String?
     @State private var loaded = false
     var body: some View {
-        ScrollView { VStack(alignment: .leading, spacing: 24) {
+        ScrollView { LazyVStack(alignment: .leading, spacing: 24) {
             PageHeader(eyebrow: "Workspace preferences", title: "Make it your journal.", subtitle: "Local storage, clear defaults and data you control.")
             appearancePanel
             ViewThatFits(in: .horizontal) {
@@ -78,10 +78,19 @@ struct SettingsView: View {
                 Label(L10n.text(message), systemImage: "checkmark.circle.fill").font(.system(size: 12)).foregroundStyle(Palette.mint).textSelection(.enabled)
                     .padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Palette.mint.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
             }
-            Panel(title: "LIQUIDITY EDGE / v6.0", subtitle: "NATIVE MACOS · SWIFTUI & SWIFTDATA") {
+            Panel(title: "LIQUIDITY EDGE / v6.0", subtitle: "NATIVE MACOS · METAL & ACCELERATE ENGINE", accent: Palette.mint) {
                 HStack(alignment: .center, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 5) {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text(L10n.text("Professional Trading Performance Journal\nBuilt around discipline, pattern recognition and execution quality.")).font(.callout).foregroundStyle(Palette.muted)
+                        HStack(spacing: 8) {
+                            Image(systemName: "cpu.fill").font(.system(size: 11)).foregroundStyle(Palette.mint)
+                            Text(verbatim: HardwareProfile.badgeLabel)
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(Palette.ink.opacity(0.9))
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(Palette.mint.opacity(0.08), in: Capsule())
+                        .overlay(Capsule().strokeBorder(Palette.mint.opacity(0.24), lineWidth: 0.8))
                     }
                     Spacer(minLength: 12)
                     HStack(spacing: 10) {

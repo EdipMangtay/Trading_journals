@@ -1,16 +1,36 @@
 import AppKit
 import CryptoKit
 import Foundation
+import Metal
 
-/// Thread-safe decoded NSImage cache preventing repeated PNG/JPEG decoding
-/// during SwiftUI scrolling, hover updates, zoom sliders, and annotation drags.
+/// Live hardware capability descriptor so performance engines and UI telemetry
+/// adapt dynamically to the host Mac (e.g., Apple M3 Pro 12-core / 36 GB Unified Memory / Metal GPU).
+enum HardwareProfile {
+    static let coreCount: Int = max(1, ProcessInfo.processInfo.activeProcessorCount)
+    static let memoryGB: Int = max(1, Int((Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824.0).rounded()))
+    static let metalDeviceName: String = MTLCreateSystemDefaultDevice()?.name ?? "Apple GPU"
+    static let isAppleSilicon: Bool = {
+        #if arch(arm64)
+        return true
+        #else
+        return false
+        #endif
+    }()
+    static var badgeLabel: String {
+        "\(metalDeviceName) · \(coreCount) Çekirdek · \(memoryGB) GB"
+    }
+}
+
+/// Thread-safe decoded NSImage cache tuned for Apple Silicon Unified Memory,
+/// preventing repeated PNG/JPEG decoding during 120Hz scrolling, hover updates, and zoom drags.
 final class ImageCache {
     static let shared = ImageCache()
     private let cache = NSCache<NSString, NSImage>()
 
     private init() {
-        cache.countLimit = 180
-        cache.totalCostLimit = 256 * 1024 * 1024 // 256 MB decoded image ceiling
+        let highMem = HardwareProfile.memoryGB >= 24
+        cache.countLimit = highMem ? 360 : 180
+        cache.totalCostLimit = (highMem ? 512 : 256) * 1024 * 1024
     }
 
     func image(for data: Data, key: String? = nil) -> NSImage? {
@@ -25,8 +45,23 @@ final class ImageCache {
         return decoded
     }
 
+    /// Concurrently decodes image thumbnails across Apple Silicon cores into Unified Memory.
+    func prewarm(_ items: [(data: Data, key: String)]) {
+        guard !items.isEmpty else { return }
+        DispatchQueue.global(qos: .utility).async {
+            if items.count >= 4 {
+                DispatchQueue.concurrentPerform(iterations: items.count) { i in
+                    _ = self.image(for: items[i].data, key: items[i].key)
+                }
+            } else {
+                for item in items {
+                    _ = self.image(for: item.data, key: item.key)
+                }
+            }
+        }
+    }
+
     private static func fingerprint(for data: Data) -> String {
-        // Fast content fingerprint: length + prefix/middle/suffix SHA256 slice for large files, full hash for thumbnails
         if data.count <= 65_536 {
             let digest = SHA256.hash(data: data)
             return "\(data.count)-" + digest.prefix(8).map { String(format: "%02x", $0) }.joined()

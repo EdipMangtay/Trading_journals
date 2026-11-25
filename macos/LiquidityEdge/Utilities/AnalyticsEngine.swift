@@ -1,4 +1,5 @@
 import Foundation
+import Accelerate
 
 struct Performance: Equatable {
     var count = 0, wins = 0, losses = 0, rCount = 0
@@ -330,11 +331,75 @@ enum AnalyticsEngine {
         return groups.map { MonthlyProcess(date: $0.key, performance: $0.value.build()) }.sorted { $0.date < $1.date }
     }
     static func correlation(_ points: [(Double, Double)]) -> Double? {
-        guard points.count >= 3 else { return nil }
-        let n = Double(points.count), mx = points.map { $0.0 }.reduce(0,+) / n, my = points.map { $0.1 }.reduce(0,+) / n
-        let dx = points.map { $0.0 - mx }, dy = points.map { $0.1 - my }
-        let denominator = sqrt(dx.map { $0 * $0 }.reduce(0,+) * dy.map { $0 * $0 }.reduce(0,+))
-        guard denominator > 0 else { return nil }
-        return zip(dx, dy).map(*).reduce(0,+) / denominator
+        let count = points.count
+        guard count >= 3 else { return nil }
+        var xs = [Double](repeating: 0, count: count)
+        var ys = [Double](repeating: 0, count: count)
+        for i in 0..<count {
+            xs[i] = points[i].0
+            ys[i] = points[i].1
+        }
+        let n = vDSP_Length(count)
+        var meanX = 0.0, meanY = 0.0
+        vDSP_meanvD(xs, 1, &meanX, n)
+        vDSP_meanvD(ys, 1, &meanY, n)
+        var negMeanX = -meanX, negMeanY = -meanY
+        var dx = [Double](repeating: 0, count: count)
+        var dy = [Double](repeating: 0, count: count)
+        vDSP_vsaddD(xs, 1, &negMeanX, &dx, 1, n)
+        vDSP_vsaddD(ys, 1, &negMeanY, &dy, 1, n)
+        var sumSqX = 0.0, sumSqY = 0.0, dot = 0.0
+        vDSP_svesqD(dx, 1, &sumSqX, n)
+        vDSP_svesqD(dy, 1, &sumSqY, n)
+        let denominator = sqrt(sumSqX * sumSqY)
+        guard denominator > 0, denominator.isFinite else { return nil }
+        vDSP_dotprD(dx, 1, dy, 1, &dot, n)
+        return dot / denominator
+    }
+
+    /// Vectorized sample standard deviation of recorded R-multiples using Apple Accelerate (vDSP).
+    static func rStandardDeviation(_ trades: [TradeRecord]) -> Double {
+        var rs: [Double] = []
+        rs.reserveCapacity(trades.count)
+        for t in trades {
+            if let r = t.rMultiple, r.isFinite { rs.append(r) }
+        }
+        let count = rs.count
+        guard count >= 2 else { return 0 }
+        let n = vDSP_Length(count)
+        var mean = 0.0
+        vDSP_meanvD(rs, 1, &mean, n)
+        var negMean = -mean
+        var centered = [Double](repeating: 0, count: count)
+        vDSP_vsaddD(rs, 1, &negMean, &centered, 1, n)
+        var sumSq = 0.0
+        vDSP_svesqD(centered, 1, &sumSq, n)
+        return sqrt(sumSq / Double(count - 1))
+    }
+
+    /// Single-pass half-hour timing heatmap aggregator without intermediate trade arrays.
+    static func heatmapBuckets(_ trades: [TradeRecord], calendar: Calendar) -> [Int: Performance] {
+        guard !trades.isEmpty else { return [:] }
+        let sorted = ordered(trades)
+        var buckets: [Int: PerformanceAccumulator] = [:]
+        buckets.reserveCapacity(64)
+        for t in sorted {
+            let comps = calendar.dateComponents([.weekday, .hour, .minute], from: t.date)
+            let key = (comps.weekday ?? 1) * 100 + (comps.hour ?? 0) * 2 + ((comps.minute ?? 0) >= 30 ? 1 : 0)
+            buckets[key, default: PerformanceAccumulator()].add(t)
+        }
+        return buckets.mapValues { $0.build() }
+    }
+
+    /// Single-pass per-setup performance map for PlaybookView O(1) lookup.
+    static func setupPerformances(_ trades: [TradeRecord]) -> [UUID?: Performance] {
+        guard !trades.isEmpty else { return [:] }
+        let sorted = ordered(trades)
+        var buckets: [UUID?: PerformanceAccumulator] = [:]
+        buckets.reserveCapacity(16)
+        for t in sorted {
+            buckets[t.setupID, default: PerformanceAccumulator()].add(t)
+        }
+        return buckets.mapValues { $0.build() }
     }
 }

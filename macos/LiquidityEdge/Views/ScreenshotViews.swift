@@ -55,11 +55,24 @@ struct ScreenshotAttachmentEditor: View {
         loading = true
         let selectedCategory = category
         Task {
-            let result = await Task.detached(priority: .userInitiated) { () -> ([ScreenshotDraft], [String]) in
+            let result = await withTaskGroup(of: (Int, Result<ScreenshotDraft, Error>).self) { group -> ([ScreenshotDraft], [String]) in
+                for (index, url) in urls.enumerated() {
+                    group.addTask(priority: .userInitiated) {
+                        (index, Result { try ScreenshotService.load(url, category: selectedCategory) })
+                    }
+                }
+                var collected: [(Int, Result<ScreenshotDraft, Error>)] = []
+                for await pair in group { collected.append(pair) }
+                collected.sort { $0.0 < $1.0 }
                 var imported: [ScreenshotDraft] = [], errors: [String] = []
-                for url in urls { do { imported.append(try ScreenshotService.load(url, category: selectedCategory)) } catch { errors.append(error.localizedDescription) } }
+                for (_, res) in collected {
+                    switch res {
+                    case .success(let shot): imported.append(shot)
+                    case .failure(let err): errors.append(err.localizedDescription)
+                    }
+                }
                 return (imported, errors)
-            }.value
+            }
             shots.append(contentsOf: result.0); error = result.1.isEmpty ? nil : result.1.joined(separator: "\n"); loading = false
         }
     }
@@ -178,6 +191,7 @@ struct AnnotationLayer: View {
                 if a.kind == "Text" || a.kind == "Liquidity marker" { context.draw(Text(a.text).font(.system(size: 14, weight: .semibold)).foregroundColor(Palette.amber), at: CGPoint(x: start.x, y: max(12, start.y - 12)), anchor: .leading) }
             }
         }
+        .drawingGroup()
     }
 }
 struct ScreenshotLibraryView: View {
@@ -189,7 +203,7 @@ struct ScreenshotLibraryView: View {
     private var items: [(TradeRecord, TradeScreenshot)] { store.scopedTrades.flatMap { trade in (store.model(trade.id)?.screenshots ?? []).filter { category == "All" || $0.category == category }.map { (trade, $0) } } }
     var body: some View {
         let visibleItems = items
-        ScrollView { VStack(alignment: .leading, spacing: 24) {
+        ScrollView { LazyVStack(alignment: .leading, spacing: 24) {
             HStack(alignment: .top, spacing: 24) {
                 PageHeader(eyebrow: "Visual memory", title: "Build your pattern library.", subtitle: "Context, entry and review images linked to real executions.")
                 Spacer(minLength: 8)
@@ -219,7 +233,12 @@ struct ScreenshotLibraryView: View {
                     }
                 }
             }
-        }.pagePadding() }.sheet(item: $selected) { shot in ScreenshotViewer(initial: shot) { changed in
+        }.pagePadding() }
+        .onAppear {
+            let entries = visibleItems.prefix(40).map { (data: $0.1.thumbnailData, key: "thumb-\($0.1.id.uuidString)") }
+            ImageCache.shared.prewarm(entries)
+        }
+        .sheet(item: $selected) { shot in ScreenshotViewer(initial: shot) { changed in
             guard let id = selectedTradeID, let record = store.trades.first(where: { $0.id == id }) else { return }
             do { var all = try (store.model(id)?.screenshots ?? []).map(ScreenshotDraft.init); if let index = all.firstIndex(where: { $0.id == changed.id }) { all[index] = changed }; try store.save(record, screenshots: all) } catch { store.report(error) }
         } }

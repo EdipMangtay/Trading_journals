@@ -12,7 +12,7 @@ struct ReviewsView: View {
     @State private var deleting: Review?
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: 24) {
                 HStack(alignment: .top, spacing: 24) {
                     PageHeader(eyebrow: "Deliberate practice", title: "Turn experience into improvement.", subtitle: "Daily, weekly and monthly reviews anchored in your trade data.")
                     Spacer(minLength: 0)
@@ -23,7 +23,7 @@ struct ReviewsView: View {
                     Panel { EmptyJournal(title: "Close the feedback loop.", subtitle: "Summarize what worked, identify the recurring mistake, and choose one adjustment.", actionTitle: "Start a review", action: { draft = ReviewDraft() }) }
                 }
                 ForEach(store.reviews, id: \.id) { review in
-                    Panel {
+                    Panel(accent: Palette.blue) {
                         HStack(alignment: .top, spacing: 18) {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 13).fill(Palette.blue.opacity(0.08)).frame(width: 48, height: 48)

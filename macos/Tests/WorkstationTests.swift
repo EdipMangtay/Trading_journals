@@ -220,4 +220,39 @@ final class WorkstationTests: XCTestCase {
         XCTAssertEqual(AnalyticsEngine.groups([minimal], by: .grade, calendar: .current).first?.name, "Unspecified")
         XCTAssertEqual(AnalyticsEngine.groups([minimal], by: .timeframe, calendar: .current).first?.name, "Unspecified")
     }
+
+    func testParallelMonteCarloAndVectorizedAnalyticsAccuracy() throws {
+        var sample: [TradeRecord] = []
+        let pattern: [Double] = [320, -150, 480, -140, 210, 610, -180, 95, -160, 420]
+        for i in 0..<200 {
+            var t = TradeRecord()
+            t.grossPnL = pattern[i % pattern.count]
+            t.rMultiple = t.grossPnL / 150.0
+            t.date = Date(timeIntervalSince1970: Double(i) * 3600)
+            t.exitDate = t.date.addingTimeInterval(1800)
+            if i % 7 == 0 { t.brokenRules = ["Chased entry"] }
+            sample.append(t)
+        }
+        // Multi-core Monte Carlo must be 100% deterministic for identical seed
+        let simA = try XCTUnwrap(WorkstationAnalytics.simulate(sample, runs: 1500, horizon: 200, shuffle: false, seed: 42))
+        let simB = try XCTUnwrap(WorkstationAnalytics.simulate(sample, runs: 1500, horizon: 200, shuffle: false, seed: 42))
+        XCTAssertEqual(simA.band.count, 201)
+        XCTAssertEqual(simA.drawdowns, simB.drawdowns)
+        XCTAssertEqual(simA.lossFraction, simB.lossFraction)
+        XCTAssertEqual(simA.band.last?.median, simB.band.last?.median)
+        XCTAssertLessThan(simA.computeDurationMs, 500)
+
+        // O(N) sliding window rolling expectancy & compliance match exact manual slice
+        let rolling = WorkstationAnalytics.rolling(sample, window: 20)
+        XCTAssertEqual(rolling.count, 200)
+        let refWindow = Array(sample[180..<200])
+        let refPerf = AnalyticsEngine.performance(refWindow)
+        XCTAssertEqual(rolling.last?.expectancy ?? 0, refPerf.expectancy, accuracy: 0.0001)
+        XCTAssertEqual(rolling.last?.compliance ?? 0, refPerf.compliance, accuracy: 0.0001)
+
+        // vDSP correlation & R standard deviation
+        let perfectCorr = try XCTUnwrap(AnalyticsEngine.correlation([(1, 2), (2, 4), (3, 6), (4, 8)]))
+        XCTAssertEqual(perfectCorr, 1.0, accuracy: 0.000001)
+        XCTAssertGreaterThan(AnalyticsEngine.rStandardDeviation(sample), 1.5)
+    }
 }

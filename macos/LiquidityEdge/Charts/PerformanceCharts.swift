@@ -203,8 +203,16 @@ struct EquityChart: View {
                     }
 
                     RuleMark(y: .value("Başlangıç", 0))
-                        .foregroundStyle(Palette.muted.opacity(0.3))
-                        .lineStyle(StrokeStyle(lineWidth: 0.8, dash: [4, 5]))
+                        .foregroundStyle(Palette.muted.opacity(0.32))
+                        .lineStyle(StrokeStyle(lineWidth: 0.9, dash: [4, 5]))
+
+                    if mode != .drawdown && mode != .rolling,
+                       let peakVal = data.map(value).max(),
+                       peakVal > 0.01 {
+                        RuleMark(y: .value("Zirve", peakVal))
+                            .foregroundStyle(color.opacity(0.24))
+                            .lineStyle(StrokeStyle(lineWidth: 0.75, dash: [2, 5]))
+                    }
 
                     if let focus {
                         if selected != nil {
@@ -527,19 +535,25 @@ struct GroupBarChart: View {
 struct PerformanceHeatmap: View {
     var trades: [TradeRecord]
     var calendar: Calendar
+    var precomputedBuckets: [Int: Performance]? = nil
     @Environment(JournalStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.edgeAnimationsEnabled) private var animationsEnabled
     @State private var hoveredCellKey: Int? = nil
+    @State private var localBuckets: [Int: Performance] = [:]
+    @State private var localSignature = ""
     private let cellWidth: CGFloat = 48
 
     private var animate: Bool { store.preferences.animations && animationsEnabled && !reduceMotion }
 
-    private var buckets: [Int: Performance] {
-        let grouped = Dictionary(grouping: trades) { trade in
-            calendar.component(.weekday, from: trade.date) * 100 + calendar.component(.hour, from: trade.date) * 2 + (calendar.component(.minute, from: trade.date) >= 30 ? 1 : 0)
-        }
-        return grouped.mapValues { AnalyticsEngine.performance($0) }
+    private var inputSignature: String {
+        "\(trades.count)-\(trades.first?.id.uuidString ?? "")-\(trades.last?.id.uuidString ?? "")-\(calendar.timeZone.identifier)"
+    }
+
+    private var resolvedBuckets: [Int: Performance] {
+        if let precomputedBuckets { return precomputedBuckets }
+        if localSignature == inputSignature { return localBuckets }
+        return AnalyticsEngine.heatmapBuckets(trades, calendar: calendar)
     }
     private func slots(_ values: [Int: Performance]) -> ClosedRange<Int> {
         let recorded = values.keys.map { $0 % 100 }
@@ -549,7 +563,7 @@ struct PerformanceHeatmap: View {
     private func time(_ slot: Int) -> String { String(format: "%02d:%02d", slot / 2, slot % 2 * 30) }
 
     var body: some View {
-        let values = buckets, range = slots(values)
+        let values = resolvedBuckets, range = slots(values)
         let weekdays = (0..<7).map { (calendar.firstWeekday - 1 + $0) % 7 + 1 }
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 10) {
@@ -627,6 +641,18 @@ struct PerformanceHeatmap: View {
             }.font(.system(size: 9)).foregroundStyle(Palette.muted)
         }
         .animation(animate ? .spring(response: 0.24, dampingFraction: 0.82) : nil, value: hoveredCellKey)
+        .onAppear {
+            if precomputedBuckets == nil {
+                localBuckets = AnalyticsEngine.heatmapBuckets(trades, calendar: calendar)
+                localSignature = inputSignature
+            }
+        }
+        .onChange(of: inputSignature) { _, nextSig in
+            if precomputedBuckets == nil {
+                localBuckets = AnalyticsEngine.heatmapBuckets(trades, calendar: calendar)
+                localSignature = nextSig
+            }
+        }
     }
 }
 

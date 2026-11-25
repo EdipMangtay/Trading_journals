@@ -64,10 +64,15 @@ struct AnalyticsView: View {
                         GroupMetricsTable(groups: groups, currency: store.accountCurrency)
                     }
                     if mode != .statistics {
-                        Text(L10n.text("CONFIRMATION CONTRIBUTION")).font(.system(size: 11, weight: .semibold, design: .monospaced)).tracking(1.5)
+                        let comps = unfiltered ? store.scopedComparisons : AnalyticsEngine.comparisons(data)
+                        Text(L10n.text("CONFIRMATION CONTRIBUTION")).font(.system(size: 11, weight: .bold, design: .monospaced)).tracking(1.5).foregroundStyle(Palette.mint)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 310), spacing: 16)], spacing: 16) {
-                            ForEach(AnalyticsEngine.comparisons(data)) { comparison in
-                                Panel(title: comparison.title.uppercased()) {
+                            ForEach(comps) { comparison in
+                                let deltaR: Double? = {
+                                    guard let l = comparison.left.performance.averageR, let r = comparison.right.performance.averageR else { return nil }
+                                    return l - r
+                                }()
+                                Panel(title: comparison.title.uppercased(), subtitle: deltaR.map { "Δ " + Format.r($0) }, accent: deltaR.map { Palette.outcome($0) }) {
                                     comparisonRow(comparison.left)
                                     Divider()
                                     comparisonRow(comparison.right)
@@ -75,11 +80,11 @@ struct AnalyticsView: View {
                                 }
                             }
                         }
-                        edgeMatrix(data)
+                        edgeMatrix(unfiltered ? store.scopedEdgeMatrix : AnalyticsEngine.edgeMatrix(data))
                     }
-                    compliance(data)
-                    Panel(title: "SESSION PERFORMANCE") { GroupMetricsTable(groups: AnalyticsEngine.groups(data, by: .session, calendar: store.preferences.calendar), currency: store.accountCurrency) }
-                    Panel(title: "ENTRY TIME HEATMAP") { PerformanceHeatmap(trades: data, calendar: store.preferences.calendar) }
+                    compliance(unfiltered ? store.scopedMonthlyProcess : AnalyticsEngine.monthlyProcess(data, calendar: store.preferences.calendar))
+                    Panel(title: "SESSION PERFORMANCE") { GroupMetricsTable(groups: unfiltered ? store.scopedSessionGroups : AnalyticsEngine.groups(data, by: .session, calendar: store.preferences.calendar), currency: store.accountCurrency) }
+                    Panel(title: "ENTRY TIME HEATMAP") { PerformanceHeatmap(trades: data, calendar: store.preferences.calendar, precomputedBuckets: unfiltered ? store.scopedHeatmapBuckets : nil) }
                     Panel(title: "METRIC DEFINITIONS") {
                         Text(L10n.text("All PnL metrics use gross PnL minus fees. Win/loss rates include breakeven trades in the denominator. Expectancy is net PnL ÷ trades; expectancy in R and average R both equal total recorded R ÷ trades with R. Average winning R uses winners only. Profit factor is gross net winners ÷ absolute net losers; ∞ means wins with no losses, and — means undefined. Drawdown starts from zero cumulative PnL. Percentage equity uses the configured starting account size, without deposits or withdrawals. Streaks reset on breakeven. Session labels are recorded manually; time buckets use the configured trading time zone. Multi-label groups can overlap.")).font(.caption).foregroundStyle(Palette.muted).textSelection(.enabled)
                     }
@@ -105,12 +110,30 @@ struct AnalyticsView: View {
     private func comparisonRow(_ group: MetricGroup) -> some View {
         HStack { VStack(alignment: .leading, spacing: 6) { Text(group.name).font(.system(size: 12, weight: .medium)); Text(L10n.text("n = \(group.performance.count) · \(Format.percent(group.performance.winRate)) WR")).font(.caption).foregroundStyle(Palette.muted) }; Spacer(); Text(Format.r(group.performance.averageR)).font(.system(size: 20, weight: .medium, design: .rounded)).foregroundStyle(Palette.outcome(group.performance.averageR ?? 0)) }
     }
-    private func edgeMatrix(_ data: [TradeRecord]) -> some View {
-        Panel(title: "EDGE MATRIX", subtitle: "CONFIRMED MODEL COMBINATIONS") {
-            let edges = AnalyticsEngine.edgeMatrix(data)
+    private func edgeMatrix(_ edges: [EdgeCombination]) -> some View {
+        Panel(title: "EDGE MATRIX", subtitle: "CONFIRMED MODEL COMBINATIONS", accent: Palette.mint) {
             if edges.isEmpty { Text(L10n.text("Record valid model confirmations to reveal combinations.")).foregroundStyle(Palette.muted) }
             ForEach(edges) { edge in
-                HStack { VStack(alignment: .leading, spacing: 6) { Text(edge.name).font(.system(size: 13, weight: .medium)); Badge(text: edge.sampleLabel, color: edge.performance.count < 30 ? Palette.amber : Palette.mint) }; Spacer(); VStack(alignment: .trailing, spacing: 6) { Text(L10n.text("\(Format.percent(edge.performance.winRate)) WR · \(Format.r(edge.performance.averageR)) expectancy")); Text(L10n.text("Avg winning R \(Format.r(edge.performance.averageWinningR)) · n = \(edge.performance.count)")).foregroundStyle(Palette.muted) }.font(.caption.monospaced()) }.padding(.vertical, 7)
+                HStack(spacing: 14) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(edge.name).font(.system(size: 13, weight: .semibold))
+                        Badge(text: edge.sampleLabel, color: edge.performance.count < 30 ? Palette.amber : Palette.mint)
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 6) {
+                        HStack(spacing: 10) {
+                            Text(Format.percent(edge.performance.winRate) + " WR")
+                                .foregroundStyle(Palette.ink)
+                            Text(Format.r(edge.performance.averageR))
+                                .fontWeight(.bold)
+                                .foregroundStyle(Palette.outcome(edge.performance.averageR ?? 0))
+                        }
+                        Text(L10n.text("Avg winning R \(Format.r(edge.performance.averageWinningR)) · n = \(edge.performance.count)")).foregroundStyle(Palette.muted)
+                    }.font(.caption.monospaced())
+                }
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .background(Palette.field.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line.opacity(0.6), lineWidth: 0.8))
             }
             Text(L10n.text("Combinations include trades with additional confirmations. “Only” excludes the other four tracked models. n < 30: low sample; 30+: reasonable sample; 50+: more evidence. Sample count alone does not establish statistical confidence or a durable edge.")).font(.caption).foregroundStyle(Palette.muted)
         }
@@ -126,8 +149,7 @@ struct AnalyticsView: View {
         style.timeZone = store.preferences.calendar.timeZone
         return date.formatted(style)
     }
-    private func compliance(_ data: [TradeRecord]) -> some View {
-        let months = AnalyticsEngine.monthlyProcess(data, calendar: store.preferences.calendar)
+    private func compliance(_ months: [MonthlyProcess]) -> some View {
         let correlation = AnalyticsEngine.correlation(months.compactMap { m in m.performance.averageR.map { (m.performance.compliance, $0) } })
         return Panel(title: "DISCIPLINE OVER TIME", subtitle: "MONTHLY RULE COMPLIANCE") {
             Chart(months) { month in
@@ -197,22 +219,37 @@ struct GroupMetricsTable: View {
 struct MistakesView: View {
     @Environment(JournalStore.self) private var store
     var body: some View {
-        let mistakes = AnalyticsEngine.mistakes(store.scopedTrades)
-        ScrollView { VStack(alignment: .leading, spacing: 24) {
+        let mistakes = store.scopedMistakes
+        let ruleBreakTrades = store.scopedTrades.filter { !$0.compliant }
+        let breakPerf = AnalyticsEngine.performance(ruleBreakTrades)
+        ScrollView { LazyVStack(alignment: .leading, spacing: 24) {
             PageHeader(eyebrow: "Process audit", title: "The cost of breaking your rules.", subtitle: "Profitable mistakes are still mistakes. Learn from the process.")
+            if !mistakes.isEmpty {
+                GlassRibbon(accent: Palette.amber) {
+                    HStack(spacing: 0) {
+                        TerminalMetric(title: "KURAL İHLALLİ İŞLEM", value: "\(ruleBreakTrades.count)", color: Palette.amber, subtitle: "Toplam \(store.scopedTrades.count) işlem içinde")
+                        Rectangle().fill(Palette.line.opacity(0.7)).frame(width: 1, height: 40).padding(.horizontal, 16)
+                        TerminalMetric(title: "İHLAL NET SONUÇ", value: Format.money(breakPerf.netPnL, currency: store.accountCurrency), color: Palette.outcome(breakPerf.netPnL), subtitle: "Toplam R " + Format.r(breakPerf.totalR))
+                        Rectangle().fill(Palette.line.opacity(0.7)).frame(width: 1, height: 40).padding(.horizontal, 16)
+                        TerminalMetric(title: "EN SIK HATA", value: mistakes.first?.name ?? "—", color: Palette.ink, subtitle: mistakes.first.map { "\($0.performance.count) kez tekrarlandı" } ?? "")
+                    }
+                }
+            }
             if mistakes.isEmpty { EmptyJournal(title: "No rule violations recorded.", subtitle: "Honest process reviews are the foundation of a useful journal.") }
             ForEach(mistakes) { mistake in
-                Panel {
+                Panel(accent: Palette.amber) {
                     HStack(alignment: .center, spacing: 20) {
                         Image(systemName: "exclamationmark.shield").font(.system(size: 22, weight: .light)).foregroundStyle(Palette.amber)
-                            .frame(width: 48, height: 48).background(Palette.amber.opacity(0.07), in: RoundedRectangle(cornerRadius: 13))
-                        VStack(alignment: .leading, spacing: 9) {
-                            Text(verbatim: mistake.name).font(.system(size: 16, weight: .semibold)).tracking(-0.3).fixedSize(horizontal: false, vertical: true)
+                            .frame(width: 48, height: 48)
+                            .background(Palette.amber.opacity(0.09), in: RoundedRectangle(cornerRadius: 13))
+                            .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(Palette.amber.opacity(0.24), lineWidth: 1))
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(verbatim: mistake.name).font(.system(size: 16, weight: .bold)).tracking(-0.3).fixedSize(horizontal: false, vertical: true)
                             Text(L10n.text("\(mistake.performance.count) trades · \(Format.percent(mistake.performance.winRate)) win rate")).foregroundStyle(Palette.muted).font(.system(size: 11))
                         }
                         Spacer(minLength: 12)
-                        VStack(alignment: .trailing, spacing: 6) { Text("TOPLAM R").font(.system(size: 9, weight: .medium)).foregroundStyle(Palette.muted); Text(Format.r(mistake.performance.totalR)).font(.system(size: 23, weight: .semibold, design: .rounded)).foregroundStyle(Palette.amber).monospacedDigit() }
-                        VStack(alignment: .trailing, spacing: 6) { Text(L10n.text("NET PNL")).font(.system(size: 9, weight: .medium)).foregroundStyle(Palette.muted); Text(Format.money(mistake.performance.netPnL, currency: store.accountCurrency)).font(.system(size: 20, weight: .medium, design: .rounded)).foregroundStyle(Palette.muted).monospacedDigit() }
+                        VStack(alignment: .trailing, spacing: 6) { Text("TOPLAM R").font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundStyle(Palette.muted); Text(Format.r(mistake.performance.totalR)).font(.system(size: 23, weight: .bold, design: .rounded)).foregroundStyle(Palette.amber).monospacedDigit() }
+                        VStack(alignment: .trailing, spacing: 6) { Text(L10n.text("NET PNL")).font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundStyle(Palette.muted); Text(Format.money(mistake.performance.netPnL, currency: store.accountCurrency)).font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(Palette.outcome(mistake.performance.netPnL)).monospacedDigit() }
                     }
                     if mistake.performance.netPnL > 0 { Label(L10n.text("Positive outcome, poor process"), systemImage: "exclamationmark.triangle").foregroundStyle(Palette.amber).font(.caption) }
                 }

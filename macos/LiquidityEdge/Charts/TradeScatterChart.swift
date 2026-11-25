@@ -163,8 +163,17 @@ struct TradeScatterChart: View {
                 Spacer(minLength: 0)
             }
         }
-        .frame(height: 38).padding(.horizontal, 14).padding(.vertical, 10)
-        .background(Palette.raised.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+        .frame(height: 42).padding(.horizontal, 15).padding(.vertical, 10)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 11).fill(Palette.raised.opacity(0.48))
+                if let point {
+                    LinearGradient(colors: [processColor(point.trade).opacity(0.1), .clear], startPoint: .leading, endPoint: .trailing)
+                        .clipShape(RoundedRectangle(cornerRadius: 11))
+                }
+            }
+        )
+        .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(point.map { processColor($0.trade).opacity(0.32) } ?? Palette.line.opacity(0.65), lineWidth: 1))
         .accessibilityElement(children: .combine)
     }
     private func summary(data: [Observation], averageX: Double?, averageY: Double?, correlation: Double?) -> some View {

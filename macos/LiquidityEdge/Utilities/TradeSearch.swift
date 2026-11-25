@@ -1,6 +1,101 @@
 import Foundation
 
 enum TradeSearch {
+    private static let haystackCache: NSCache<NSString, NSString> = {
+        let cache = NSCache<NSString, NSString>()
+        cache.countLimit = 8192
+        return cache
+    }()
+
+    @inline(__always)
+    private static func fnv1aMix(_ hash: inout UInt64, _ string: String) {
+        for byte in string.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001B3
+        }
+        hash ^= 0xFF
+        hash &*= 0x100000001B3
+    }
+
+    private static func contentSignature(for trade: TradeRecord) -> String {
+        var h: UInt64 = 0xCBF29CE484222325
+        fnv1aMix(&h, trade.instrument)
+        fnv1aMix(&h, trade.direction)
+        fnv1aMix(&h, trade.session)
+        fnv1aMix(&h, trade.setupName)
+        fnv1aMix(&h, trade.grade)
+        fnv1aMix(&h, trade.bias)
+        fnv1aMix(&h, trade.biasRelation)
+        fnv1aMix(&h, trade.narrative)
+        fnv1aMix(&h, trade.newsDriver)
+        fnv1aMix(&h, trade.qt.profile)
+        fnv1aMix(&h, trade.qt.trueOpenAnchor)
+        fnv1aMix(&h, trade.qt.trueOpenLocation)
+        fnv1aMix(&h, trade.qt.dailyQuarter)
+        fnv1aMix(&h, trade.qt.higherQuarter)
+        fnv1aMix(&h, trade.entryTimeframe)
+        fnv1aMix(&h, trade.drawOnLiquidity)
+        fnv1aMix(&h, trade.notes.thesis)
+        fnv1aMix(&h, trade.notes.lesson)
+        fnv1aMix(&h, trade.classification.rawValue)
+        for item in trade.tags { fnv1aMix(&h, item) }
+        for item in trade.brokenRules { fnv1aMix(&h, item) }
+        for item in trade.confirmations { fnv1aMix(&h, item) }
+        for item in trade.emotional.emotions { fnv1aMix(&h, item) }
+        return "\(trade.id.uuidString)-\(String(h, radix: 16))"
+    }
+
+    static func cachedHaystack(for trade: TradeRecord) -> String {
+        let key = contentSignature(for: trade) as NSString
+        if let hit = haystackCache.object(forKey: key) {
+            return hit as String
+        }
+        let aliases = trade.instrument.uppercased() == "XAUUSD" ? "gold altin xauusd" : trade.instrument
+        var parts: [String] = []
+        parts.reserveCapacity(32 + trade.tags.count + trade.brokenRules.count * 2 + trade.confirmations.count * 2 + trade.emotional.emotions.count * 2)
+        parts.append(trade.instrument)
+        parts.append(aliases)
+        parts.append(trade.direction)
+        parts.append(L10n.text(trade.direction))
+        parts.append(trade.session)
+        parts.append(L10n.text(trade.session))
+        parts.append(trade.setupName)
+        parts.append(trade.grade)
+        parts.append(trade.bias)
+        parts.append(trade.biasRelation)
+        parts.append(trade.narrative)
+        parts.append(trade.newsDriver)
+        parts.append(trade.qt.profile)
+        parts.append(trade.qt.trueOpenAnchor)
+        parts.append(trade.qt.trueOpenLocation)
+        parts.append(trade.qt.dailyQuarter)
+        parts.append(trade.qt.higherQuarter)
+        parts.append(trade.entryTimeframe)
+        parts.append(trade.drawOnLiquidity)
+        parts.append(trade.notes.thesis)
+        parts.append(trade.notes.lesson)
+        parts.append(trade.classification.rawValue)
+        parts.append(L10n.text(trade.classification.rawValue))
+        parts.append(contentsOf: trade.tags)
+        for item in trade.brokenRules { parts.append(item); parts.append(L10n.text(item)) }
+        for item in trade.confirmations { parts.append(item); parts.append(L10n.text(item)) }
+        for item in trade.emotional.emotions { parts.append(item); parts.append(L10n.text(item)) }
+        let normalized = normalize(parts.joined(separator: " "))
+        haystackCache.setObject(normalized as NSString, forKey: key)
+        return normalized
+    }
+
+    static func prewarm(_ trades: [TradeRecord]) {
+        guard !trades.isEmpty else { return }
+        if trades.count >= 64 {
+            DispatchQueue.concurrentPerform(iterations: trades.count) { i in
+                _ = cachedHaystack(for: trades[i])
+            }
+        } else {
+            for t in trades { _ = cachedHaystack(for: t) }
+        }
+    }
+
     private static func normalize(_ value: String) -> String {
         value.lowercased().replacingOccurrences(of: "ı", with: "i").folding(options: .diacriticInsensitive, locale: L10n.locale)
     }
@@ -73,9 +168,7 @@ enum TradeSearch {
             guard !isEmpty else { return true }
             for pred in predicates where !pred(trade) { return false }
             guard !remainingTokens.isEmpty else { return true }
-            let aliases = trade.instrument.uppercased() == "XAUUSD" ? "gold altin xauusd" : trade.instrument
-            let localized = ([trade.direction, trade.session, trade.classification.rawValue] + trade.brokenRules + trade.confirmations + trade.emotional.emotions).map(L10n.text)
-            let haystack = TradeSearch.normalize(([trade.instrument, aliases, trade.direction, trade.session, trade.setupName, trade.grade, trade.bias, trade.biasRelation, trade.narrative, trade.newsDriver, trade.qt.profile, trade.qt.trueOpenAnchor, trade.qt.trueOpenLocation, trade.qt.dailyQuarter, trade.qt.higherQuarter, trade.entryTimeframe, trade.drawOnLiquidity, trade.notes.thesis, trade.notes.lesson, trade.classification.rawValue] + trade.tags + trade.brokenRules + trade.confirmations + trade.emotional.emotions + localized).joined(separator: " "))
+            let haystack = TradeSearch.cachedHaystack(for: trade)
             return remainingTokens.allSatisfy { haystack.contains($0) }
         }
     }

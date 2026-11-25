@@ -2,20 +2,26 @@ import SwiftUI
 import AppKit
 
 enum Palette {
-    static let canvas = adaptive(0x080C12, 0xF4F6F9)
-    static let panel = adaptive(0x101722, 0xFFFFFF)
-    static let raised = adaptive(0x192434, 0xEBF0F6)
-    static let sidebar = adaptive(0x0C1119, 0xEEF2F7)
-    static let field = adaptive(0x0B111A, 0xF6F8FB)
-    static let line = adaptive(0x222E3E, 0xDCE3EC)
-    static let primaryButtonInk = adaptive(0x062016, 0xFFFFFF)
-    static let ink = adaptive(0xF1F5F8, 0x16202A)
-    static let muted = adaptive(0x9AA6B6, 0x526173)
-    static let mint = adaptive(0x5CE1B3, 0x087851)
-    static let red = adaptive(0xF4767E, 0xBA3546)
-    static let amber = adaptive(0xF0BC6B, 0x906018)
-    static let blue = adaptive(0x7DA9F8, 0x315EAB)
+    static let canvas = adaptive(0x060A10, 0xF2F5FA)
+    static let panel = adaptive(0x0E1522, 0xFFFFFF)
+    static let panelTop = adaptive(0x131D2E, 0xFFFFFF)
+    static let raised = adaptive(0x182538, 0xE8EEF6)
+    static let sidebar = adaptive(0x090E17, 0xEBF0F7)
+    static let field = adaptive(0x0A101A, 0xF5F8FC)
+    static let line = adaptive(0x223248, 0xD8E1EC)
+    static let primaryButtonInk = adaptive(0x041D14, 0xFFFFFF)
+    static let ink = adaptive(0xF3F7FB, 0x121C27)
+    static let muted = adaptive(0x94A3B8, 0x516175)
+    static let mint = adaptive(0x4FE6B4, 0x057A55)
+    static let mintDeep = adaptive(0x2AC997, 0x046144)
+    static let red = adaptive(0xF76E7C, 0xC02A3D)
+    static let amber = adaptive(0xF5BE62, 0x9A6312)
+    static let blue = adaptive(0x6EA8FF, 0x2857A8)
+    static let cyan = adaptive(0x52D6F4, 0x0A7E99)
     static let specular = adaptive(0xFFFFFF, 0xFFFFFF)
+    static var panelGradient: LinearGradient {
+        LinearGradient(colors: [panelTop, panel], startPoint: .top, endPoint: .bottom)
+    }
     static func adaptive(_ dark: UInt32, _ light: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let hex = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
@@ -25,6 +31,85 @@ enum Palette {
     static func outcome(_ number: Double) -> Color { number > 0 ? mint : number < 0 ? red : muted }
     static func classification(_ c: Classification) -> Color {
         switch c { case .invalidWinner, .invalidLoser: return amber; case .validWinner: return mint; case .validLoser: return blue; case .breakeven: return muted }
+    }
+}
+
+/// GPU-composited ambient workspace backdrop rendered into a single cached Metal texture via `.drawingGroup()`.
+struct TerminalBackdrop: View {
+    @Environment(\.colorScheme) private var colorScheme
+    var body: some View {
+        let isDark = colorScheme == .dark
+        ZStack {
+            Palette.canvas
+            Canvas(opaque: false, rendersAsynchronously: false) { context, size in
+                // Dual ambient institutional auroras
+                let topLeft = Gradient(colors: [
+                    Palette.mint.opacity(isDark ? 0.085 : 0.055),
+                    Palette.blue.opacity(isDark ? 0.032 : 0.02),
+                    .clear
+                ])
+                context.fill(
+                    Path(CGRect(origin: .zero, size: size)),
+                    with: .radialGradient(topLeft, center: CGPoint(x: size.width * 0.14, y: -40), startRadius: 10, endRadius: max(540, size.width * 0.58))
+                )
+                let bottomRight = Gradient(colors: [
+                    Palette.blue.opacity(isDark ? 0.065 : 0.04),
+                    Palette.cyan.opacity(isDark ? 0.025 : 0.015),
+                    .clear
+                ])
+                context.fill(
+                    Path(CGRect(origin: .zero, size: size)),
+                    with: .radialGradient(bottomRight, center: CGPoint(x: size.width * 0.92, y: size.height * 0.92), startRadius: 20, endRadius: max(460, size.width * 0.45))
+                )
+                // Ultra-subtle precision coordinate micro-dots
+                let step: CGFloat = 32
+                let dotColor = (isDark ? Color.white : Color.black).opacity(isDark ? 0.028 : 0.035)
+                var dots = Path()
+                var y: CGFloat = 16
+                while y < size.height {
+                    var x: CGFloat = 16
+                    while x < size.width {
+                        dots.addRect(CGRect(x: x, y: y, width: 1, height: 1))
+                        x += step
+                    }
+                    y += step
+                }
+                context.fill(dots, with: .color(dotColor))
+            }
+            .drawingGroup()
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+}
+
+/// Shared institutional glass KPI ribbon container for flagship telemetry strips across workspaces.
+struct GlassRibbon<Content: View>: View {
+    var accent: Color = Palette.mint
+    var showAccentGlow: Bool = true
+    @ViewBuilder var content: Content
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        content
+            .padding(.horizontal, 22).padding(.vertical, 18)
+            .background(
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 16).fill(Palette.panelGradient)
+                    if showAccentGlow {
+                        LinearGradient(colors: [accent.opacity(0.065), Palette.blue.opacity(0.015), .clear], startPoint: .leading, endPoint: .trailing)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+                }
+            )
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Palette.line.opacity(contrast == .increased ? 1 : 0.88), lineWidth: 1))
+            .overlay(alignment: .top) {
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(LinearGradient(colors: [accent.opacity(0.45), Palette.specular.opacity(0.08), .clear], startPoint: .leading, endPoint: .trailing))
+                    .frame(height: 1.2)
+                    .padding(.horizontal, 20)
+            }
+            .shadow(color: .black.opacity(0.11), radius: 16, x: 0, y: 6)
     }
 }
 
@@ -100,27 +185,39 @@ struct EdgeButtonStyle: ButtonStyle {
         }
         private var stroke: Color {
             if isFocused { return accent }
-            if configuration.role == .destructive { return accent.opacity(hovered ? 0.45 : 0.2) }
-            return prominent ? accent.opacity(0.6) : Palette.line.opacity(contrast == .increased ? 1 : hovered ? 1 : 0.75)
+            if configuration.role == .destructive { return accent.opacity(hovered ? 0.55 : 0.25) }
+            return prominent ? accent.opacity(hovered ? 0.85 : 0.55) : Palette.line.opacity(contrast == .increased ? 1 : hovered ? 1 : 0.8)
         }
         var body: some View {
+            let corner: CGFloat = compact ? 8 : 10
             configuration.label
                 .font(.system(size: compact ? 11 : 12, weight: .semibold))
-                .padding(.horizontal, compact ? 10 : 15).padding(.vertical, compact ? 6 : 9)
+                .padding(.horizontal, compact ? 11 : 16).padding(.vertical, compact ? 6 : 9)
                 .frame(minHeight: compact ? 28 : 36)
                 .foregroundStyle(!isEnabled ? Palette.muted.opacity(0.6) : prominent ? Palette.primaryButtonInk : configuration.role == .destructive ? Palette.red : Palette.ink)
-                .background(fill, in: RoundedRectangle(cornerRadius: compact ? 7 : 9))
-                .overlay(RoundedRectangle(cornerRadius: compact ? 7 : 9).strokeBorder(stroke, lineWidth: isFocused ? 2 : 1))
-                .overlay(alignment: .top) {
-                    RoundedRectangle(cornerRadius: 1).fill(Color.white.opacity(prominent && isEnabled ? 0.22 : hovered ? 0.08 : 0.035)).frame(height: 1).padding(.horizontal, 9)
+                .background {
+                    if prominent && isEnabled && configuration.role != .destructive {
+                        RoundedRectangle(cornerRadius: corner)
+                            .fill(LinearGradient(colors: [Palette.mint, Palette.mintDeep], startPoint: .top, endPoint: .bottom))
+                            .opacity(configuration.isPressed ? 0.82 : hovered ? 1.0 : 0.96)
+                    } else {
+                        RoundedRectangle(cornerRadius: corner).fill(fill)
+                    }
                 }
-                .shadow(color: prominent && isEnabled && hovered ? accent.opacity(0.28) : .clear, radius: 10, x: 0, y: 3)
-                .scaleEffect(configuration.isPressed && isEnabled ? 0.97 : 1.0)
+                .overlay(RoundedRectangle(cornerRadius: corner).strokeBorder(stroke, lineWidth: isFocused ? 2 : 1))
+                .overlay(alignment: .top) {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(Color.white.opacity(prominent && isEnabled ? 0.32 : hovered ? 0.12 : 0.05))
+                        .frame(height: 1)
+                        .padding(.horizontal, 10)
+                }
+                .shadow(color: prominent && isEnabled ? accent.opacity(hovered ? 0.36 : 0.16) : .black.opacity(hovered ? 0.14 : 0.04), radius: prominent ? (hovered ? 14 : 7) : 6, x: 0, y: hovered ? 4 : 2)
+                .scaleEffect(configuration.isPressed && isEnabled ? 0.97 : (animationsEnabled && !reduceMotion && hovered && isEnabled ? 1.01 : 1.0))
                 .opacity(configuration.isPressed && !prominent ? 0.8 : 1)
-                .contentShape(RoundedRectangle(cornerRadius: 9))
+                .contentShape(RoundedRectangle(cornerRadius: corner))
                 .onHover { hovered = $0 }
-                .animation(animationsEnabled && !reduceMotion ? .spring(response: 0.22, dampingFraction: 0.78) : nil, value: hovered)
-                .animation(animationsEnabled && !reduceMotion ? .spring(response: 0.16, dampingFraction: 0.7) : nil, value: configuration.isPressed)
+                .animation(animationsEnabled && !reduceMotion ? .spring(response: 0.2, dampingFraction: 0.78) : nil, value: hovered)
+                .animation(animationsEnabled && !reduceMotion ? .spring(response: 0.15, dampingFraction: 0.7) : nil, value: configuration.isPressed)
         }
     }
 }
@@ -256,6 +353,7 @@ struct SegmentedTabs<Value: Hashable>: View {
 struct Panel<Content: View>: View {
     var title: String? = nil
     var subtitle: String? = nil
+    var accent: Color? = nil
     @ViewBuilder var content: Content
     @Environment(\.colorSchemeContrast) private var contrast
     var body: some View {
@@ -272,22 +370,36 @@ struct Panel<Content: View>: View {
                         if let subtitle { panelSubtitle(subtitle) }
                     }
                 }.padding(.bottom, 14)
-                    .overlay(alignment: .bottom) { Rectangle().fill(Palette.line.opacity(0.6)).frame(height: 1) }
+                    .overlay(alignment: .bottom) { Rectangle().fill(Palette.line.opacity(0.65)).frame(height: 1) }
             }
             content
         }.padding(22).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Palette.panel, in: RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Palette.line.opacity(contrast == .increased ? 1 : 0.85), lineWidth: 1))
+            .background(
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 16).fill(Palette.panelGradient)
+                    if let accent {
+                        LinearGradient(colors: [accent.opacity(0.055), .clear], startPoint: .topLeading, endPoint: .center)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+                }
+            )
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Palette.line.opacity(contrast == .increased ? 1 : 0.88), lineWidth: 1))
             .overlay(alignment: .top) {
                 RoundedRectangle(cornerRadius: 1)
-                    .fill(LinearGradient(colors: [Palette.specular.opacity(0.085), Palette.specular.opacity(0.01)], startPoint: .leading, endPoint: .trailing))
-                    .frame(height: 1)
+                    .fill(LinearGradient(colors: [(accent ?? Palette.specular).opacity(accent == nil ? 0.11 : 0.42), Palette.specular.opacity(0.02)], startPoint: .leading, endPoint: .trailing))
+                    .frame(height: 1.2)
                     .padding(.horizontal, 18)
             }
-            .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: 6)
+            .shadow(color: .black.opacity(0.11), radius: 18, x: 0, y: 7)
     }
     private func panelTitle(_ title: String) -> some View {
-        Text(L10n.text(title)).font(EdgeType.section).tracking(0.1).fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
+        HStack(spacing: 8) {
+            if let accent {
+                Circle().fill(accent).frame(width: 6, height: 6)
+                    .shadow(color: accent.opacity(0.55), radius: 3)
+            }
+            Text(L10n.text(title)).font(EdgeType.section).tracking(0.15).fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
+        }
     }
     private func panelSubtitle(_ subtitle: String) -> some View {
         Text(L10n.text(subtitle)).font(EdgeType.caption).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
@@ -325,24 +437,22 @@ struct MetricCard: View {
         }.frame(maxWidth: .infinity, alignment: .leading).padding(19)
             .background(
                 ZStack(alignment: .topTrailing) {
-                    RoundedRectangle(cornerRadius: 14).fill(hovering ? Palette.raised.opacity(0.72) : Palette.panel)
-                    if hovering {
-                        RadialGradient(colors: [color.opacity(0.11), .clear], center: .topTrailing, startRadius: 2, endRadius: 120)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                    }
+                    RoundedRectangle(cornerRadius: 15).fill(hovering ? Palette.raised.opacity(0.76) : Palette.panel)
+                    RadialGradient(colors: [color.opacity(hovering ? 0.14 : 0.045), .clear], center: .topTrailing, startRadius: 2, endRadius: hovering ? 140 : 90)
+                        .clipShape(RoundedRectangle(cornerRadius: 15))
                 }
             )
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(hovering ? color.opacity(0.32) : Palette.line.opacity(0.85)))
+            .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(hovering ? color.opacity(0.38) : Palette.line.opacity(0.88)))
             .overlay(alignment: .top) {
                 RoundedRectangle(cornerRadius: 1)
-                    .fill(LinearGradient(colors: [hovering ? color.opacity(0.35) : Palette.specular.opacity(0.07), .clear], startPoint: .leading, endPoint: .trailing))
-                    .frame(height: 1)
-                    .padding(.horizontal, 14)
+                    .fill(LinearGradient(colors: [hovering ? color.opacity(0.48) : Palette.specular.opacity(0.09), .clear], startPoint: .leading, endPoint: .trailing))
+                    .frame(height: 1.2)
+                    .padding(.horizontal, 15)
             }
-            .shadow(color: .black.opacity(hovering ? 0.14 : 0.04), radius: hovering ? 14 : 6, x: 0, y: hovering ? 6 : 2)
-            .offset(y: animationsEnabled && !reduceMotion && hovering ? -1.5 : 0)
+            .shadow(color: .black.opacity(hovering ? 0.18 : 0.07), radius: hovering ? 16 : 8, x: 0, y: hovering ? 7 : 3)
+            .offset(y: animationsEnabled && !reduceMotion && hovering ? -2 : 0)
             .onHover { hovering = $0 }
-            .animation(animationsEnabled && !reduceMotion ? .spring(response: 0.24, dampingFraction: 0.78) : nil, value: hovering)
+            .animation(animationsEnabled && !reduceMotion ? .spring(response: 0.22, dampingFraction: 0.78) : nil, value: hovering)
             .accessibilityElement(children: .combine)
     }
     private var symbol: String {
@@ -360,8 +470,12 @@ struct PageHeader: View {
     var eyebrow: String, title: String, subtitle: String
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 7) { Capsule().fill(Palette.mint).frame(width: 15, height: 3); Text(L10n.text(eyebrow.uppercased())).font(.system(size: 10, weight: .semibold)).tracking(1.8).foregroundStyle(Palette.muted) }
-            Text(L10n.text(title)).font(.system(size: 30, weight: .semibold)).tracking(-1).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Capsule().fill(LinearGradient(colors: [Palette.mint, Palette.cyan], startPoint: .leading, endPoint: .trailing)).frame(width: 18, height: 3)
+                    .shadow(color: Palette.mint.opacity(0.55), radius: 4)
+                Text(L10n.text(eyebrow.uppercased())).font(.system(size: 10, weight: .bold, design: .monospaced)).tracking(1.9).foregroundStyle(Palette.mint.opacity(0.92))
+            }
+            Text(L10n.text(title)).font(.system(size: 31, weight: .bold)).tracking(-1.05).fixedSize(horizontal: false, vertical: true)
             Text(L10n.text(subtitle)).font(EdgeType.body).foregroundStyle(Palette.muted).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -372,16 +486,19 @@ struct EmptyJournal: View {
     var actionTitle = "New trade"
     var action: (() -> Void)? = nil
     var body: some View {
-        VStack(spacing: 17) {
+        VStack(spacing: 18) {
             ZStack {
-                RoundedRectangle(cornerRadius: 20).fill(Palette.mint.opacity(0.07)).frame(width: 84, height: 84)
-                RoundedRectangle(cornerRadius: 20).strokeBorder(Palette.mint.opacity(0.15)).frame(width: 84, height: 84)
+                Circle()
+                    .fill(RadialGradient(colors: [Palette.mint.opacity(0.22), Palette.blue.opacity(0.05), .clear], center: .center, startRadius: 6, endRadius: 64))
+                    .frame(width: 128, height: 128)
+                RoundedRectangle(cornerRadius: 22).fill(LinearGradient(colors: [Palette.mint.opacity(0.14), Palette.mint.opacity(0.04)], startPoint: .topLeading, endPoint: .bottomTrailing)).frame(width: 82, height: 82)
+                RoundedRectangle(cornerRadius: 22).strokeBorder(Palette.mint.opacity(0.28), lineWidth: 1).frame(width: 82, height: 82)
                 Image(systemName: "chart.xyaxis.line").font(.system(size: 32, weight: .light)).foregroundStyle(Palette.mint)
             }
-            Text(L10n.text(title)).font(.system(size: 22, weight: .semibold)).tracking(-0.5)
+            Text(L10n.text(title)).font(.system(size: 22, weight: .bold)).tracking(-0.5)
             Text(L10n.text(subtitle)).font(.system(size: 12)).foregroundStyle(Palette.muted).multilineTextAlignment(.center).frame(maxWidth: 440)
             if let action { Button(action: action) { Label(L10n.text(actionTitle), systemImage: "plus") }.buttonStyle(EdgeButtonStyle()).padding(.top, 5) }
-        }.padding(.horizontal, 32).padding(.vertical, 48).frame(maxWidth: .infinity)
+        }.padding(.horizontal, 32).padding(.vertical, 44).frame(maxWidth: .infinity)
     }
 }
 struct ChipSelection: View {
@@ -459,13 +576,36 @@ struct ExecutionScoreRing: View {
 
     var body: some View {
         ZStack {
+            // Precision instrument dial ticks + soft inner ambient halo rendered into one Metal layer
+            Canvas { context, canvasSize in
+                let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+                let outerR = min(canvasSize.width, canvasSize.height) / 2
+                let innerR = outerR - 3.5
+                for i in 0..<24 {
+                    let angle = (Double(i) / 24.0) * .pi * 2 - .pi / 2
+                    let isMajor = i.isMultiple(of: 6)
+                    let r1 = isMajor ? innerR - 2.5 : innerR - 1
+                    let r2 = outerR
+                    var tick = Path()
+                    tick.move(to: CGPoint(x: center.x + cos(angle) * r1, y: center.y + sin(angle) * r1))
+                    tick.addLine(to: CGPoint(x: center.x + cos(angle) * r2, y: center.y + sin(angle) * r2))
+                    context.stroke(tick, with: .color(Palette.muted.opacity(isMajor ? 0.32 : 0.14)), lineWidth: isMajor ? 1.2 : 0.8)
+                }
+            }
+            .frame(width: size + 16, height: size + 16)
+
             Circle()
-                .stroke(Palette.raised.opacity(0.85), lineWidth: lineWidth)
+                .fill(RadialGradient(colors: [ringColor.opacity(0.11), .clear], center: .center, startRadius: 6, endRadius: size * 0.56))
+                .frame(width: size, height: size)
+
+            Circle()
+                .stroke(Palette.raised.opacity(0.9), lineWidth: lineWidth)
+
             Circle()
                 .trim(from: 0, to: animatedProgress)
                 .stroke(
                     AngularGradient(
-                        colors: [ringColor.opacity(0.55), ringColor, Palette.mint],
+                        colors: [ringColor.opacity(0.45), ringColor, Palette.mint],
                         center: .center,
                         startAngle: .degrees(-90),
                         endAngle: .degrees(270)
@@ -473,19 +613,23 @@ struct ExecutionScoreRing: View {
                     style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
                 )
                 .rotationEffect(.degrees(-90))
-                .shadow(color: ringColor.opacity(0.32), radius: 6, x: 0, y: 0)
+                .shadow(color: ringColor.opacity(0.42), radius: 8, x: 0, y: 0)
+
             VStack(spacing: 2) {
                 Text(Format.number(score, digits: 0))
-                    .font(.system(size: 36, weight: .semibold, design: .rounded))
+                    .font(.system(size: 36, weight: .bold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(Palette.ink)
                     .contentTransition(animationsEnabled && !reduceMotion ? .numericText() : .identity)
                 Text("/ 100")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Palette.muted)
             }
         }
         .frame(width: size, height: size)
+        .padding(14)
+        .drawingGroup()
+        .frame(width: size + 28, height: size + 28)
         .onAppear {
             if animationsEnabled && !reduceMotion {
                 animatedProgress = 0

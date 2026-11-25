@@ -31,13 +31,22 @@ struct TradeRows: View {
                                     .foregroundStyle(dirColor)
                                     .padding(.horizontal, 5).padding(.vertical, 2)
                                     .background(dirColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+                                if !trade.grade.isEmpty {
+                                    let gradeColor: Color = (trade.grade == "A+" || trade.grade == "A") ? Palette.mint : trade.grade == "B" ? Palette.blue : Palette.amber
+                                    Text(verbatim: trade.grade)
+                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                        .foregroundStyle(gradeColor)
+                                        .padding(.horizontal, 5).padding(.vertical, 2)
+                                        .background(gradeColor.opacity(0.11), in: RoundedRectangle(cornerRadius: 4))
+                                        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(gradeColor.opacity(0.24), lineWidth: 0.7))
+                                }
                                 if trade.qt.enabled {
                                     let qtBadge = [trade.qt.profile, trade.qt.dailyQuarter].filter { !$0.isEmpty }.joined(separator: " ")
                                     Text(verbatim: qtBadge.isEmpty ? "QT" : qtBadge)
                                         .font(.system(size: 9, weight: .medium, design: .monospaced))
                                         .foregroundStyle(Palette.blue)
                                         .padding(.horizontal, 5).padding(.vertical, 2)
-                                        .background(Palette.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+                                        .background(Palette.blue.opacity(0.11), in: RoundedRectangle(cornerRadius: 4))
                                 }
                                 Spacer(minLength: 4)
                                 Text(Format.date(trade.date, calendar: store.preferences.calendar)).font(.system(size: 10)).foregroundStyle(Palette.muted).lineLimit(1)
@@ -140,7 +149,7 @@ struct TradesView: View {
         let sorted = visible
         let performance = (filter.isEmpty && outcome == "Tümü") ? store.scopedPerformance : AnalyticsEngine.performance(sorted)
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: 24) {
                 HStack(alignment: .top, spacing: 20) {
                     PageHeader(eyebrow: "Execution log", title: "Every trade tells a story.", subtitle: "\(sorted.count) trades · Search, inspect and refine your process.")
                     Spacer(minLength: 8)
@@ -157,17 +166,33 @@ struct TradesView: View {
                         if store.scopedTrades.isEmpty { newTrade() } else { filter = TradeFilter(); outcome = "Tümü" }
                     })
                 } else {
-                    HStack(spacing: 20) {
-                        Label("\(sorted.count) işlem", systemImage: "list.bullet.rectangle").foregroundStyle(Palette.muted)
+                    HStack(spacing: 14) {
+                        Label("\(sorted.count) işlem", systemImage: "list.bullet.rectangle")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Palette.ink)
                         Spacer()
-                        Text("Net \(Format.money(performance.netPnL, currency: store.accountCurrency))").foregroundStyle(Palette.outcome(performance.netPnL))
-                        Text("\(Format.percent(performance.winRate)) başarı").foregroundStyle(Palette.muted)
-                    }.font(.system(size: 12, weight: .medium)).monospacedDigit()
+                        tradeStatPill("NET", Format.money(performance.netPnL, currency: store.accountCurrency), color: Palette.outcome(performance.netPnL))
+                        tradeStatPill("ORT. R", Format.r(performance.averageR), color: Palette.outcome(performance.averageR ?? 0))
+                        tradeStatPill("WR", Format.percent(performance.winRate), color: Palette.ink)
+                        tradeStatPill("UYUM", Format.percent(performance.compliance), color: performance.compliance >= 80 ? Palette.mint : Palette.amber)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(Palette.panelGradient, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.line.opacity(0.85), lineWidth: 1))
                     Panel { TradeRows(trades: sorted, openTrade: openTrade) }
                     Label("Kayıtlar bu Mac’te saklanır. Ayrıntılar için bir işleme tıkla.", systemImage: "internaldrive").font(.caption).foregroundStyle(Palette.muted)
                 }
             }.pagePadding()
         }.onAppear { filter.query = initialQuery }.onChange(of: initialQuery) { _, value in filter.query = value }
+    }
+    private func tradeStatPill(_ label: String, _ value: String, color: Color) -> some View {
+        HStack(spacing: 5) {
+            Text(label).font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(Palette.muted)
+            Text(verbatim: value).font(.system(size: 11, weight: .bold, design: .rounded)).monospacedDigit().foregroundStyle(color)
+        }
+        .padding(.horizontal, 9).padding(.vertical, 4)
+        .background(Palette.field.opacity(0.85), in: Capsule())
+        .overlay(Capsule().strokeBorder(Palette.line.opacity(0.75), lineWidth: 0.8))
     }
 }
 

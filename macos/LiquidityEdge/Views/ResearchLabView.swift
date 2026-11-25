@@ -23,7 +23,7 @@ struct ResearchLabView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: 24) {
                 headerView
                 presetBar
                 FilterBar(allTrades: store.scopedTrades, calendar: store.preferences.calendar, filter: $filter)
@@ -144,16 +144,25 @@ struct ResearchLabView: View {
 
     // MARK: - Summary Ribbon
     private var summaryRibbon: some View {
-        HStack(spacing: 20) {
-            TerminalMetric(title: "FİLTRELENEN İŞLEM", value: "n = \(performance.count)")
-            TerminalMetric(title: "KAZANMA ORANI", value: Format.percent(performance.winRate))
-            TerminalMetric(title: "ORTALAMA R", value: Format.r(performance.averageR), color: Palette.outcome(performance.averageR ?? 0))
-            TerminalMetric(title: "KÂR FAKTÖRÜ", value: Format.factor(performance))
-            TerminalMetric(title: "BEKLENTİ", value: Format.money(performance.expectancy, currency: store.accountCurrency))
-            TerminalMetric(title: "PLANA UYUM", value: Format.percent(performance.compliance), color: performance.compliance >= 80 ? Palette.mint : Palette.amber)
+        GlassRibbon(accent: Palette.outcome(performance.netPnL)) {
+            HStack(spacing: 0) {
+                TerminalMetric(title: "FİLTRELENEN İŞLEM", value: "n = \(performance.count)")
+                labDivider
+                TerminalMetric(title: "KAZANMA ORANI", value: Format.percent(performance.winRate))
+                labDivider
+                TerminalMetric(title: "ORTALAMA R", value: Format.r(performance.averageR), color: Palette.outcome(performance.averageR ?? 0))
+                labDivider
+                TerminalMetric(title: "KÂR FAKTÖRÜ", value: Format.factor(performance), color: (performance.profitFactor ?? 0) >= 2.0 ? Palette.mint : Palette.ink)
+                labDivider
+                TerminalMetric(title: "BEKLENTİ", value: Format.money(performance.expectancy, currency: store.accountCurrency), color: Palette.outcome(performance.expectancy))
+                labDivider
+                TerminalMetric(title: "PLANA UYUM", value: Format.percent(performance.compliance), color: performance.compliance >= 80 ? Palette.mint : Palette.amber)
+            }
         }
-        .padding(20)
-        .background(Palette.panel, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private var labDivider: some View {
+        Rectangle().fill(Palette.line.opacity(0.7)).frame(width: 1, height: 38).padding(.horizontal, 14)
     }
 
     // MARK: - Caution Banner
@@ -182,45 +191,67 @@ struct ResearchLabView: View {
 
     // MARK: - Tab: Matrix
     private var matrixSection: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Panel(title: "STRATEJİ VE MODEL AVANTAJI", subtitle: "Doğrulanmış model teyitleri ve gözlemlenen sonuçlar") {
-                let edges = AnalyticsEngine.edgeMatrix(trades)
+        let edges = filter.isEmpty ? store.scopedEdgeMatrix : AnalyticsEngine.edgeMatrix(trades)
+        let comps = filter.isEmpty ? store.scopedComparisons : AnalyticsEngine.comparisons(trades)
+        return VStack(alignment: .leading, spacing: 20) {
+            Panel(title: "STRATEJİ VE MODEL AVANTAJI", subtitle: "Doğrulanmış model teyitleri ve gözlemlenen sonuçlar", accent: Palette.mint) {
                 if edges.isEmpty {
                     Text("Filtrelenen verilerde model teyidi kaydedilmiş işlem bulunamadı.")
                         .foregroundStyle(Palette.muted)
                 } else {
                     ForEach(edges) { edge in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(edge.name).font(.system(size: 13, weight: .medium))
+                        HStack(spacing: 14) {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(edge.name).font(.system(size: 13, weight: .semibold))
                                 Badge(text: edge.sampleLabel, color: edge.performance.count < 30 ? Palette.amber : Palette.mint)
                             }
                             Spacer()
                             VStack(alignment: .trailing, spacing: 4) {
-                                Text("\(Format.percent(edge.performance.winRate)) WR · \(Format.r(edge.performance.averageR))")
-                                    .font(.system(size: 12, design: .monospaced))
+                                HStack(spacing: 8) {
+                                    Text("\(Format.percent(edge.performance.winRate)) WR").foregroundStyle(Palette.ink)
+                                    Text(Format.r(edge.performance.averageR))
+                                        .fontWeight(.bold)
+                                        .foregroundStyle(Palette.outcome(edge.performance.averageR ?? 0))
+                                }
+                                .font(.system(size: 12, design: .monospaced))
                                 Text("Ort. Kazanç: \(Format.r(edge.performance.averageWinningR)) · n = \(edge.performance.count)")
                                     .font(.caption)
                                     .foregroundStyle(Palette.muted)
                             }
                         }
-                        .padding(.vertical, 8)
-                        Divider()
+                        .padding(.horizontal, 12).padding(.vertical, 10)
+                        .background(Palette.field.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line.opacity(0.65), lineWidth: 0.8))
                     }
                 }
             }
 
-            Panel(title: "TEYİT KARŞILAŞTIRMALARI (A/B KOHORT)") {
+            Panel(title: "TEYİT KARŞILAŞTIRMALARI (A/B KOHORT)", accent: Palette.blue) {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
-                    ForEach(AnalyticsEngine.comparisons(trades)) { comp in
+                    ForEach(comps) { comp in
+                        let deltaR: Double? = {
+                            guard let l = comp.left.performance.averageR, let r = comp.right.performance.averageR else { return nil }
+                            return l - r
+                        }()
                         VStack(alignment: .leading, spacing: 10) {
-                            Text(comp.title.uppercased()).font(.caption.weight(.bold)).foregroundStyle(Palette.mint)
+                            HStack {
+                                Text(comp.title.uppercased()).font(.caption.weight(.bold)).foregroundStyle(Palette.mint)
+                                Spacer()
+                                if let deltaR {
+                                    Text("Δ " + Format.r(deltaR))
+                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                        .foregroundStyle(Palette.outcome(deltaR))
+                                        .padding(.horizontal, 7).padding(.vertical, 2.5)
+                                        .background(Palette.outcome(deltaR).opacity(0.11), in: Capsule())
+                                }
+                            }
                             cohortRow(comp.left)
                             Divider()
                             cohortRow(comp.right)
                         }
                         .padding(14)
-                        .background(Palette.field.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+                        .background(Palette.field.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.line.opacity(0.75), lineWidth: 1))
                     }
                 }
             }
@@ -486,7 +517,7 @@ struct ResearchLabView: View {
             }
 
             Panel(title: "ZAMANLAMA VE SEANS ISI HARİTASI", subtitle: "Giriş saati ve oturum yoğunluğu") {
-                PerformanceHeatmap(trades: trades, calendar: store.preferences.calendar)
+                PerformanceHeatmap(trades: trades, calendar: store.preferences.calendar, precomputedBuckets: filter.isEmpty ? store.scopedHeatmapBuckets : nil)
             }
         }
     }
