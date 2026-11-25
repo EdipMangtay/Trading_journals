@@ -15,7 +15,6 @@ struct EquityChart: View {
     var presentation: ChartPresentation = .standard
     @State private var selectedPointID: Int?
     @State private var revealProgress: CGFloat = 1.0
-    @State private var pulseBeacon = false
     @Environment(JournalStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.edgeAnimationsEnabled) private var animationsEnabled
@@ -231,8 +230,11 @@ struct EquityChart: View {
                                 .foregroundStyle(color.opacity(0.45)).symbolSize(130)
                         } else {
                             PointMark(x: .value("Tarih", focus.date), y: .value("Performans", value(focus)))
-                                .foregroundStyle(color.opacity(pulseBeacon ? 0.08 : 0.24))
-                                .symbolSize(pulseBeacon ? 340 : 160)
+                                .foregroundStyle(color.opacity(0.14))
+                                .symbolSize(280)
+                            PointMark(x: .value("Tarih", focus.date), y: .value("Performans", value(focus)))
+                                .foregroundStyle(color.opacity(0.32))
+                                .symbolSize(110)
                         }
 
                         PointMark(x: .value("Tarih", focus.date), y: .value("Performans", value(focus)))
@@ -327,7 +329,6 @@ struct EquityChart: View {
             if animate {
                 revealProgress = 0.02
                 withAnimation(.easeOut(duration: 0.62)) { revealProgress = 1.0 }
-                withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) { pulseBeacon = true }
             } else {
                 revealProgress = 1.0
             }
